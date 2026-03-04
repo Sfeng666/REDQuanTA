@@ -1,4 +1,7 @@
-# <span style="color:red">RED</span>QuanTA
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="data/reference/title_dark.svg">
+  <img alt="REDQuanTA" src="data/reference/title_light.svg" height="48">
+</picture>
 
 **R**eplication-**E**nhanced **D**etection of **Quan**titative **T**raits under **A**daptation
 
