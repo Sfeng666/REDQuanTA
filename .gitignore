@@ -1,0 +1,37 @@
+# Results directory (except examples)
+results/**
+!results/.gitkeep
+
+# HTCondor logs and outputs
+*.log
+*.out
+*.err
+*.dag.*
+*.rescue*
+
+# R environment tarball (too large for git)
+htcondor/env/r_env.tar.gz
+
+# Python cache
+__pycache__/
+*.pyc
+.Python
+
+# R temporary files
+.Rhistory
+.RData
+*.Rproj.user
+
+# Snakemake
+.snakemake/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

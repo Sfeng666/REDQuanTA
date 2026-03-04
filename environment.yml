@@ -1,0 +1,34 @@
+# REDQuanTA Conda Environment
+# Replication-Enhanced Detection of Quantitative Traits under Adaptation
+#
+# To create the environment:
+#   conda env create -f environment.yml
+#
+# To activate:
+#   conda activate redquanta
+#
+# To update an existing environment:
+#   conda env update -f environment.yml
+
+name: redquanta
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Python (for CLI and workflow orchestration)
+  - python>=3.9
+  - snakemake>=8.0         # Workflow management for local execution
+  - pandas>=2.0            # Data manipulation
+  
+  # R and essential packages
+  - r-base>=4.3
+  - r-abc>=2.2            # Approximate Bayesian Computation
+  - r-ggplot2>=3.5        # Plotting framework
+  - r-viridis>=0.6        # Color-blind friendly palettes
+  - r-cowplot>=1.2        # Publication-ready plot combining
+  - r-reshape2>=1.4       # Data reshaping
+  - r-e1071>=1.7          # Neural network for ABC
+  
+  # Optional: for development
+  # - r-devtools
+  # - r-testthat

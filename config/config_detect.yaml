@@ -1,0 +1,38 @@
+# REDQuanTA Module 1 (Detect) Configuration
+# Snakemake config for adaptive QST detection
+
+# Input files
+sample_structure: "data/example/sample_structure.csv"
+trait_values: "data/example/trait_values.csv"
+
+# FST input options: "direct", "from_vcf", or "from_simulation"
+fst_input_mode: "direct"
+
+# Direct FST input (used when fst_input_mode: "direct")
+fst_autosomes: "data/example/qst_neutral_autosomes.txt"
+fst_chrX: "data/example/qst_neutral_chrX.txt"
+
+# VCF input (used when fst_input_mode: "from_vcf")
+vcf_file: ""
+vcf_populations: ""  # comma-separated population IDs
+
+# MS simulation input (used when fst_input_mode: "from_simulation")
+ms_config: ""
+
+# ABC parameters
+num_neutral: 100         # Number of neutral FST values to use (reduce for testing)
+num_sim: 100000          # Number of ABC simulations per estimation
+batch_size: 50           # FST values per batch job
+threshold_percentile: 0.95
+summary_stats: "QST,F_within_pop"  # Best-performing combo
+
+# Chromosome types to analyze
+chromosomes:
+  - "autosomes"
+  - "chrX"
+
+# Output directory
+output_dir: "results/detect"
+
+# Parallelization
+threads_per_job: 1

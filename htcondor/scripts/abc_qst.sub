@@ -1,0 +1,31 @@
+# HTCondor submit file for ABC QST estimation (trait or neutral)
+
+universe = vanilla
+executable = $(dir_scripts)/run_abc_qst.sh
+arguments = $(mode) $(input) $(ext_sd_or_file) $(output_file) $(num_sim) $(summary_stats)
+
+# Transfer R script and environment from home directory (avoids osdf issues)
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(r_env_tarball)$(extra_input_comma)$(extra_input_files)
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_output_files = $(output_file)
+
+initialdir = $(outdir)
+log = $(job).log
+output = $(job).out
+error = $(job).err
+
+# Resource requests - based on benchmark results for batch_1000
+request_cpus = 1
+request_memory = 4GB
+request_disk = 2GB
+
+# Auto-retry jobs held due to transient failures (transfer=13, memory=21)
+periodic_release = (NumJobStarts < 5) && ((HoldReasonCode == 13) || (HoldReasonCode == 21))
+
+# Enable scaling to campus pools and OS Pool (reference: https://chtc.cs.wisc.edu/uw-research-computing/scaling-htc)
+want_campus_pools = true
+want_ospool = true
+
+queue
+

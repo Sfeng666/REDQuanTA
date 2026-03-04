@@ -1,0 +1,46 @@
+# REDQuanTA Module 2 (Evaluate) Configuration - Reduced params for local testing
+# Snakemake config for performance evaluation
+
+# FST input options: "direct", "from_vcf", or "from_simulation"
+fst_input_mode: "direct"
+
+# Direct FST input
+fst_autosomes: "data/example/qst_neutral_autosomes.txt"
+fst_chrX: "data/example/qst_neutral_chrX.txt"
+
+# Evaluation parameters (REDUCED for local testing)
+adaptive_qst_levels:
+  - 0.50
+  - 0.75
+  - 1.00
+
+ve_ratios:
+  - 0.1
+  - 1.0
+  - 10.0
+
+num_repeats: 100         # Reduced from 10000
+num_neutral: 100         # Reduced from 10000
+num_sim: 100000          # ABC simulations per estimation
+batch_size: 50           # Reduced from 1000
+threshold_percentile: 0.95
+
+# Summary statistics combinations to evaluate
+summary_stats_combos:
+  - "QST,F_within_pop"
+  - "QST,ratioVext"
+  - "QST"
+
+# Chromosome types
+chromosomes:
+  - "autosomes"
+  - "chrX"
+
+# Sample structure for comparison (optional)
+sample_structures: []  # Empty = skip sample structure comparison
+
+# Output directory
+output_dir: "results/evaluate"
+
+# Parallelization
+threads_per_job: 1

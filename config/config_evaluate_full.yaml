@@ -1,0 +1,107 @@
+# REDQuanTA Module 2 (Evaluate) Configuration - Full params for HTCondor
+# Snakemake config for performance evaluation
+
+# FST input options: "direct", "from_vcf", or "from_simulation"
+fst_input_mode: "direct"
+
+# Direct FST input (use full-size files for production)
+fst_autosomes: "data/input/qst_neutral_autosomes.txt"
+fst_chrX: "data/input/qst_neutral_chrX.txt"
+
+# Evaluation parameters (FULL for HTCondor)
+adaptive_qst_levels:
+  - 0.50
+  - 0.55
+  - 0.60
+  - 0.65
+  - 0.70
+  - 0.75
+  - 0.80
+  - 0.85
+  - 0.90
+  - 0.95
+  - 1.00
+
+ve_ratios:
+  - 0.01
+  - 0.1
+  - 1.0
+  - 10.0
+  - 100.0
+
+num_repeats: 10000       # Full evaluation
+num_neutral: 10000       # Full neutral distribution
+num_sim: 100000          # ABC simulations per estimation
+batch_size: 1000         # Optimal batch size
+threshold_percentile: 0.95
+
+# Summary statistics combinations to evaluate
+summary_stats_combos:
+  - "QST,F_within_pop"
+  - "QST,ratioVext"
+  - "QST,ext_sd"
+  - "QST"
+  - "F_within_pop"
+  - "ratioVext"
+
+# Chromosome types
+chromosomes:
+  - "autosomes"
+  - "chrX"
+
+# Sample structure comparison configurations
+sample_structures:
+  - id: "n2_i4_r3"
+    n_pop: 2
+    n_strains: 4
+    n_reps: 3
+  - id: "n2_i6_r3"
+    n_pop: 2
+    n_strains: 6
+    n_reps: 3
+  - id: "n2_i8_r3"
+    n_pop: 2
+    n_strains: 8
+    n_reps: 3
+  - id: "n2_i10_r3"
+    n_pop: 2
+    n_strains: 10
+    n_reps: 3
+  - id: "n2_i12_r3"
+    n_pop: 2
+    n_strains: 12
+    n_reps: 3
+  - id: "n2_i14_r3"
+    n_pop: 2
+    n_strains: 14
+    n_reps: 3
+  - id: "n2_i6_r2"
+    n_pop: 2
+    n_strains: 6
+    n_reps: 2
+  - id: "n2_i9_r2"
+    n_pop: 2
+    n_strains: 9
+    n_reps: 2
+  - id: "n2_i12_r2"
+    n_pop: 2
+    n_strains: 12
+    n_reps: 2
+  - id: "n2_i15_r2"
+    n_pop: 2
+    n_strains: 15
+    n_reps: 2
+  - id: "n2_i18_r2"
+    n_pop: 2
+    n_strains: 18
+    n_reps: 2
+  - id: "n2_i21_r2"
+    n_pop: 2
+    n_strains: 21
+    n_reps: 2
+
+# Output directory
+output_dir: "results/evaluate_full"
+
+# Parallelization
+threads_per_job: 1
