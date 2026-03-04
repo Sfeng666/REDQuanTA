@@ -1,0 +1,13 @@
+# NOOP job - does nothing, just used as a dependency target
+# The POST script attached to this job runs the aggregation
+
+universe = local
+executable = /bin/true
+arguments = 
+
+log = $(job).log
+output = $(job).out
+error = $(job).err
+
+queue
+

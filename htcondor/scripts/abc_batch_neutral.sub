@@ -1,0 +1,38 @@
+# HTCondor submit file for batch neutral ABC QST estimation
+# Processes multiple FST values in a single job for efficiency
+# Supports multiple summary stat combinations when combos_file is provided
+
+universe = vanilla
+executable = $(dir_scripts)/run_abc_qst.sh
+arguments = batch_neutral $(fst_input) $(ext_sd) $(output_file) $(num_sim) $(summary_stats)
+environment = "$(environment)"
+
+# Transfer R script, FST batch file, environment, and optional combos file
+# Note: combos_file is included in the comma-separated list when provided
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(fst_file), $(r_env_tarball)$(extra_input_files)
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_output_files = $(output_file)
+
+initialdir = $(outdir)
+log = $(job).log
+output = $(job).out
+error = $(job).err
+
+# Resource requests - start at 4GB, will be increased by release script if needed
+request_cpus = 1
+request_memory = 4GB
+request_disk = 2GB
+
+# Auto-retry for transfer failures only (HoldReasonCode 13)
+# Memory failures (21) are handled by release_memory_held_jobs.sh which increases memory
+periodic_release = (NumJobStarts < 5) && (HoldReasonCode == 13)
+
+# Enable scaling to campus pools and OS Pool
+want_campus_pools = true
+want_ospool = true
+
+# Require compatible OS (EL7, EL8, EL9, or Ubuntu 20+)
+requirements = (Target.OpSysMajorVer >= 7)
+
+queue
