@@ -113,13 +113,13 @@ cat("Calculating mean TPR across", length(chr_types), "chromosome types...\n")
 
 # Aggregate by model (mean across chromosomes)
 df_avg <- aggregate(
-  df_combined[, tpr_cols],
+  df_combined[, tpr_cols, drop = FALSE],
   by = list(model = df_combined$model),
   FUN = mean, na.rm = TRUE
 )
 
 # Overall mean TPR across all ratios
-df_avg$mean_TPR <- rowMeans(df_avg[, tpr_cols], na.rm = TRUE)
+df_avg$mean_TPR <- rowMeans(df_avg[, tpr_cols, drop = FALSE], na.rm = TRUE)
 
 # Sort and rank
 df_avg <- df_avg[order(-df_avg$mean_TPR), ]
@@ -140,7 +140,7 @@ df_avg <- df_avg[, c("rank", "model", tpr_ve_cols, "mean_TPR")]
 for (col in c(tpr_ve_cols, "mean_TPR")) df_avg[[col]] <- round(df_avg[[col]], 4)
 
 # Save
-output_file <- file.path(results_dir, "combined_model_ranking.csv")
+output_file <- if (length(args) >= 2) args[2] else file.path(results_dir, "combined_model_ranking.csv")
 write.csv(df_avg, output_file, row.names = FALSE)
 cat("\nCombined model ranking saved to:", output_file, "\n")
 

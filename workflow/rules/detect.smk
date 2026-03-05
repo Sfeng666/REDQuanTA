@@ -100,15 +100,14 @@ rule estimate_neutral_qst:
         f"{OUTPUT_DIR}/logs/{{trait}}_{{chr}}_neutral_batch_{{batch}}.log"
     shell:
         """
-        # Calculate start and end indices for this batch
+        mkdir -p $(dirname {output.neutral_batch})
+        
         START=$(( ({params.batch} - 1) * {params.batch_size} + 1 ))
         END=$(( {params.batch} * {params.batch_size} ))
         
-        # Extract FST values for this batch
         FST_BATCH=$(mktemp)
         sed -n "${{START}},${{END}}p" {input.fst_file} > $FST_BATCH
         
-        # Read ext_sd
         EXT_SD=$(cat {input.ext_sd})
         
         Rscript {params.scripts_dir}/qst_abc_sim.R \
@@ -123,34 +122,48 @@ rule estimate_neutral_qst:
         rm -f $FST_BATCH
         """
 
-# Rule: Aggregate results for a single trait
-rule aggregate_trait:
+# Rule: Aggregate results for a single trait per chromosome
+rule aggregate_trait_chr:
     input:
         trait_qst=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_trait_qst.RData",
         neutral_batches=lambda wildcards: expand(
             f"{OUTPUT_DIR}/{{trait}}/{{chr}}/neutral_batch_{{batch}}.RData",
             trait=wildcards.trait,
-            chr=CHROMOSOMES,
+            chr=wildcards.chr,
             batch=range(1, N_BATCHES + 1)
         )
     output:
-        result=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_result.csv"
+        result=f"{OUTPUT_DIR}/{{trait}}/{{chr}}/{{trait}}_{{chr}}_result.csv"
     params:
-        trait_id="{trait}",
         threshold_percentile=THRESHOLD_PERCENTILE,
         scripts_dir=SCRIPTS_DIR
     log:
-        f"{OUTPUT_DIR}/logs/{{trait}}_aggregate.log"
+        f"{OUTPUT_DIR}/logs/{{trait}}_{{chr}}_aggregate.log"
     shell:
         """
         Rscript {params.scripts_dir}/aggregate_qst.R \
-            {params.trait_id} \
             {input.trait_qst} \
-            {OUTPUT_DIR}/{params.trait_id} \
-            {output.result} \
+            {OUTPUT_DIR}/{wildcards.trait}/{wildcards.chr} \
             {params.threshold_percentile} \
+            {output.result} \
             > {log} 2>&1
         """
+
+# Rule: Combine per-chromosome results for a single trait
+rule aggregate_trait:
+    input:
+        chr_results=lambda wildcards: expand(
+            f"{OUTPUT_DIR}/{{trait}}/{{chr}}/{{trait}}_{{chr}}_result.csv",
+            trait=wildcards.trait,
+            chr=CHROMOSOMES
+        )
+    output:
+        result=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_result.csv"
+    run:
+        import pandas as pd
+        dfs = [pd.read_csv(f) for f in input.chr_results]
+        combined = pd.concat(dfs, ignore_index=True)
+        combined.to_csv(output.result, index=False)
 
 # Rule: Combine all trait results
 rule aggregate_all_traits:

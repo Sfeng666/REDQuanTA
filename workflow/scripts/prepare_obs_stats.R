@@ -3,30 +3,29 @@
 # This generates the obs_stats needed for ABC estimation
 #
 # Usage:
-#   Rscript prepare_obs_stats.R <trait_values_csv> <sample_structure_csv> <trait_id> <output_file>
-#
-# Example:
-#   Rscript prepare_obs_stats.R data/input/trait_values.csv data/input/sample_structure.csv L0MQ04 output/L0MQ04_obs_stats.RData
+#   Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file]
 #
 # Arguments:
-#   1. trait_values_csv: Path to trait values CSV
-#   2. sample_structure_csv: Path to sample structure CSV
+#   1. sample_structure_csv: Path to sample structure CSV
+#   2. trait_values_csv: Path to trait values CSV
 #   3. trait_id: Trait ID to process
 #   4. output_file: Path to save obs_stats RData
+#   5. ext_sd_file: (optional) Path to save ext_sd value as text
 
 # No additional libraries needed - only base R functions used
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 4) {
-  cat("Usage: Rscript prepare_obs_stats.R <trait_values_csv> <sample_structure_csv> <trait_id> <output_file>\n")
+  cat("Usage: Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file]\n")
   quit(status = 1)
 }
 
-trait_values_path <- args[1]
-sample_structure_path <- args[2]
+sample_structure_path <- args[1]
+trait_values_path <- args[2]
 trait_id <- args[3]
 output_file <- args[4]
+ext_sd_file <- if (length(args) >= 5) args[5] else NULL
 
 # Read sample structure
 sample_structure <- read.csv(sample_structure_path)
@@ -91,23 +90,28 @@ among_pop_var <- variance_components$var_among
 within_pop_var <- variance_components$var_within
 ext_var <- variance_components$var_residual
 
-# Handle division by zero
-if (among_pop_var + within_pop_var == 0) {
+total_genetic_var <- among_pop_var + within_pop_var
+
+if (total_genetic_var == 0) {
   QST <- 0
   ratioVext <- 0
+  F_among_pop <- 0
+  F_within_pop <- 0
 } else {
   QST <- among_pop_var / (among_pop_var + 2 * within_pop_var)
-  ratioVext <- ext_var / (among_pop_var + within_pop_var)
+  ratioVext <- ext_var / total_genetic_var
+  F_among_pop <- if (within_pop_var == 0) 0 else among_pop_var / within_pop_var
+  F_within_pop <- if (ext_var == 0) 0 else within_pop_var / ext_var
 }
 
-# DISK-OPTIMIZED: Only include stats needed for ABC (QST, ratioVext)
-# Plus basic variance SDs needed for prior generation
 obs_stats <- c(
   among_pop_sd = sqrt(among_pop_var),
   within_pop_sd = sqrt(within_pop_var),
   ext_sd = sqrt(ext_var),
   QST = QST,
-  ratioVext = ratioVext
+  ratioVext = ratioVext,
+  F_among_pop = F_among_pop,
+  F_within_pop = F_within_pop
 )
 
 # Also save metadata
@@ -125,4 +129,9 @@ cat("Chr:", chr, "\n")
 cat("Obs stats saved to:", output_file, "\n")
 cat("ratioVext:", obs_stats['ratioVext'], "\n")
 cat("among_pop_sd:", obs_stats['among_pop_sd'], "\n")
+
+if (!is.null(ext_sd_file)) {
+  writeLines(as.character(obs_stats['ext_sd']), ext_sd_file)
+  cat("ext_sd saved to:", ext_sd_file, "\n")
+}
 

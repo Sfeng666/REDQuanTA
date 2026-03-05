@@ -31,8 +31,10 @@ if (length(args) < 6) {
 
 results_dir <- args[1]
 chr_type <- args[2]
-adaptive_qst <- as.numeric(strsplit(args[3], ",")[[1]])
-ve_ratios <- as.numeric(strsplit(args[4], ",")[[1]])
+adaptive_qst_str <- strsplit(args[3], ",")[[1]]
+ve_ratios_str <- strsplit(args[4], ",")[[1]]
+adaptive_qst <- as.numeric(adaptive_qst_str)
+ve_ratios <- as.numeric(ve_ratios_str)
 threshold_percentile <- as.numeric(args[5])
 output_file <- args[6]
 
@@ -43,205 +45,97 @@ cat("Adaptive QST levels:", paste(adaptive_qst, collapse = ", "), "\n")
 cat("V_E/V_G ratios:", paste(ve_ratios, collapse = ", "), "\n")
 cat("Threshold percentile:", threshold_percentile, "\n")
 
-#' Load QST estimates from RData files in a directory
-#' @param dir_path Directory containing batch RData files
-#' @param pattern Pattern to match files
-#' @param combo Filter by specific summary stat combination (NULL = return all)
-#' @return If combo is NULL and multi-combo data: data.frame with combo and qst columns
-#'         If combo is specified or single-combo data: vector of QST estimates
-load_qst_estimates <- function(dir_path, pattern = "*.RData", combo = NULL) {
-  files <- list.files(dir_path, pattern = "\\.RData$", full.names = TRUE)
-  if (length(files) == 0) {
-    warning(paste("No RData files found in:", dir_path))
-    return(numeric(0))
-  }
+#' Load QST estimates from RData files matching a glob pattern
+#' Files are found in results_dir by pattern (flat naming, not subdirectories)
+load_qst_from_files <- function(files) {
+  if (length(files) == 0) return(numeric(0))
   
-  all_results <- list()
-  is_multi_combo <- FALSE
-  
+  all_qst <- c()
   for (f in files) {
     tryCatch({
-      load(f)  # Loads 'result'
-      
-      # Check if this is multi-combo mode
-      if (!is.null(result$is_multi_combo) && result$is_multi_combo) {
-        is_multi_combo <- TRUE
-      }
-      
+      load(f)
       if (result$mode == "batch_neutral") {
-        # Neutral batch
-        if (is_multi_combo && "combo" %in% names(result$results)) {
-          all_results[[length(all_results) + 1]] <- result$results[, c("combo", "qst")]
-        } else {
-          all_results[[length(all_results) + 1]] <- data.frame(
-            combo = "default", qst = result$results$qst
-          )
-        }
+        all_qst <- c(all_qst, result$results$qst)
       } else if (result$mode == "batch_evaluate") {
-        # Adaptive batch
-        if (is_multi_combo && "combo" %in% names(result$results)) {
-          all_results[[length(all_results) + 1]] <- data.frame(
-            combo = result$results$combo,
-            qst = result$results$estimated_qst
-          )
-        } else {
-          all_results[[length(all_results) + 1]] <- data.frame(
-            combo = "default", qst = result$results$estimated_qst
-          )
-        }
+        all_qst <- c(all_qst, result$results$estimated_qst)
       } else if (result$mode == "neutral") {
-        all_results[[length(all_results) + 1]] <- data.frame(combo = "default", qst = result$qst)
+        all_qst <- c(all_qst, result$qst)
       } else if (result$mode == "evaluate") {
-        all_results[[length(all_results) + 1]] <- data.frame(combo = "default", qst = result$estimated_qst)
+        all_qst <- c(all_qst, result$estimated_qst)
       }
     }, error = function(e) {
       warning(paste("Error loading file:", f, "-", e$message))
     })
   }
-  
-  if (length(all_results) == 0) {
-    return(if (is_multi_combo && is.null(combo)) data.frame(combo = character(), qst = numeric()) else numeric(0))
-  }
-  
-  combined <- do.call(rbind, all_results)
-  combined <- combined[!is.na(combined$qst), ]
-  
-  if (!is.null(combo)) {
-    # Filter to specific combination
-    return(combined$qst[combined$combo == combo])
-  } else if (is_multi_combo) {
-    # Return all data with combo column
-    return(combined)
-  } else {
-    # Return just the QST values
-    return(combined$qst)
-  }
+  return(all_qst[!is.na(all_qst)])
 }
 
-#' Get unique combinations from multi-combo results
-get_unique_combos <- function(dir_path) {
-  files <- list.files(dir_path, pattern = "\\.RData$", full.names = TRUE)
-  combos <- c()
-  
-  for (f in files) {
-    tryCatch({
-      load(f)
-      if (!is.null(result$is_multi_combo) && result$is_multi_combo && 
-          "combo" %in% names(result$results)) {
-        combos <- unique(c(combos, result$results$combo))
-      }
-    }, error = function(e) {})
-  }
-  
-  return(combos)
-}
-
-# Initialize results matrices
 n_qst <- length(adaptive_qst)
 n_ratios <- length(ve_ratios)
 
 cat("\n=== Loading and processing results ===\n")
 
-# Check if this is multi-combo mode by examining first neutral directory
-first_neutral_dir <- file.path(results_dir, "neutral_ratio_1")
-combo_list <- get_unique_combos(first_neutral_dir)
-is_multi_combo <- length(combo_list) > 0
+combo_list <- c("default")
 
-if (is_multi_combo) {
-  cat("\nMulti-combo mode detected:", length(combo_list), "combinations\n")
-} else {
-  combo_list <- c("default")
-  cat("\nSingle-combo mode\n")
-}
-
-# Process each combination
 for (combo in combo_list) {
-  combo_name <- if (combo == "default") "" else paste0("_", gsub(",", "_", combo))
-  cat("\n=== Processing combination:", combo, "===\n")
-  
-  # TPR matrix: rows = adaptive QST levels, columns = V_E/V_G ratios
   tpr_matrix <- matrix(NA, nrow = n_qst, ncol = n_ratios)
   rownames(tpr_matrix) <- paste0("QST_", adaptive_qst)
   colnames(tpr_matrix) <- paste0("VEratio_", ve_ratios)
-  
-  # FPR matrix: one row (neutral), columns = V_E/V_G ratios
+
   fpr_matrix <- matrix(NA, nrow = 1, ncol = n_ratios)
   rownames(fpr_matrix) <- "neutral"
   colnames(fpr_matrix) <- paste0("VEratio_", ve_ratios)
-  
-  # Threshold matrix: neutral QST threshold at each V_E ratio
+
   threshold_matrix <- matrix(NA, nrow = 1, ncol = n_ratios)
   rownames(threshold_matrix) <- "threshold"
   colnames(threshold_matrix) <- paste0("VEratio_", ve_ratios)
-  
-  # Step 1: Load neutral QST estimates and calculate thresholds for each V_E ratio
+
   cat("\nProcessing neutral QST estimates...\n")
-  
+
+  all_rdata <- list.files(results_dir, pattern = "\\.RData$", full.names = TRUE, recursive = TRUE)
+
   for (ratio_idx in 1:n_ratios) {
     ve_ratio <- ve_ratios[ratio_idx]
-    neutral_dir <- file.path(results_dir, paste0("neutral_ratio_", ratio_idx))
-    
-    if (!dir.exists(neutral_dir)) {
-      cat("  Warning: Neutral directory not found:", neutral_dir, "\n")
-      next
-    }
-    
-    if (is_multi_combo) {
-      neutral_qst <- load_qst_estimates(neutral_dir, combo = combo)
-    } else {
-      neutral_qst <- load_qst_estimates(neutral_dir)
-    }
+    prefix <- paste0("neutral_r", ve_ratios_str[ratio_idx], "_b")
+    files <- all_rdata[grepl(prefix, basename(all_rdata), fixed = TRUE)]
+
+    neutral_qst <- load_qst_from_files(files)
     n_neutral <- length(neutral_qst)
-    
+
     if (n_neutral > 0) {
-      # Calculate threshold at given percentile
       threshold <- quantile(neutral_qst, probs = threshold_percentile, na.rm = TRUE)
       threshold_matrix[1, ratio_idx] <- threshold
-      
-      # Calculate FPR (false positive rate)
       fpr <- sum(neutral_qst > threshold) / n_neutral
       fpr_matrix[1, ratio_idx] <- fpr
-      
-      cat("  V_E ratio", ratio_idx, "(", ve_ratio, "): n =", n_neutral, 
+
+      cat("  V_E ratio", ratio_idx, "(", ve_ratio, "): n =", n_neutral,
           ", threshold =", round(threshold, 4), ", FPR =", round(fpr, 4), "\n")
     } else {
-      cat("  V_E ratio", ratio_idx, "(", ve_ratio, "): No data\n")
+      cat("  V_E ratio", ratio_idx, "(", ve_ratio, "): No data (prefix:", prefix, ")\n")
     }
   }
-  
-  # Step 2: Load adaptive QST estimates and calculate TPR for each condition
+
   cat("\nProcessing adaptive QST estimates...\n")
-  
+
   for (qst_idx in 1:n_qst) {
     qst_value <- adaptive_qst[qst_idx]
-    qst_str <- gsub("\\.", "_", sprintf("%.2f", qst_value))
-    
+
     for (ratio_idx in 1:n_ratios) {
       ve_ratio <- ve_ratios[ratio_idx]
-      adaptive_dir <- file.path(results_dir, paste0("adaptive_q", qst_str, "_r", ratio_idx))
-      
-      if (!dir.exists(adaptive_dir)) {
-        cat("  Warning: Adaptive directory not found:", adaptive_dir, "\n")
-        next
-      }
-      
-      if (is_multi_combo) {
-        adaptive_qst_estimates <- load_qst_estimates(adaptive_dir, combo = combo)
-      } else {
-        adaptive_qst_estimates <- load_qst_estimates(adaptive_dir)
-      }
+      prefix <- paste0("adaptive_q", adaptive_qst_str[qst_idx], "_r", ve_ratios_str[ratio_idx], "_b")
+      files <- all_rdata[grepl(prefix, basename(all_rdata), fixed = TRUE)]
+
+      adaptive_qst_estimates <- load_qst_from_files(files)
       n_adaptive <- length(adaptive_qst_estimates)
-      
+
       if (n_adaptive > 0 && !is.na(threshold_matrix[1, ratio_idx])) {
         threshold <- threshold_matrix[1, ratio_idx]
-        
-        # Calculate TPR (true positive rate)
         tpr <- sum(adaptive_qst_estimates > threshold) / n_adaptive
         tpr_matrix[qst_idx, ratio_idx] <- tpr
       }
     }
-    
-    cat("  QST =", qst_value, ": TPR across ratios =", 
+
+    cat("  QST =", qst_value, ": TPR across ratios =",
         paste(round(tpr_matrix[qst_idx, ], 3), collapse = ", "), "\n")
   }
 
@@ -254,12 +148,7 @@ for (combo in combo_list) {
     dir.create(output_dir, recursive = TRUE)
   }
   
-  # Output file for this combo
-  if (is_multi_combo && combo != "default") {
-    combo_output_file <- sub("\\.csv$", paste0(combo_name, ".csv"), output_file)
-  } else {
-    combo_output_file <- output_file
-  }
+  combo_output_file <- output_file
   
   # Combine all results into a single data frame
   results_df <- data.frame(
@@ -287,8 +176,7 @@ for (combo in combo_list) {
   image(1:ncol(heatmap_data), 1:nrow(heatmap_data), t(heatmap_data),
         col = colors, axes = FALSE,
         xlab = "", ylab = "",
-        main = paste("True Positive Rate (TPR) -", chr_type, 
-                     if(is_multi_combo) paste0("\nModel: ", combo) else ""))
+        main = paste("True Positive Rate (TPR) -", chr_type))
   
   # Add axes
   axis(1, at = 1:ncol(heatmap_data), labels = ve_ratios, las = 2, cex.axis = 0.8)
@@ -313,49 +201,15 @@ for (combo in combo_list) {
   dev.off()
   cat("Heatmap saved to:", heatmap_file, "\n")
   
-  # Collect model ranking data
-  if (!exists("model_ranking")) {
-    model_ranking <- data.frame()
-  }
-  
-  model_ranking <- rbind(model_ranking, data.frame(
-    model = combo,
-    mean_tpr = mean(tpr_matrix, na.rm = TRUE),
-    mean_fpr = mean(fpr_matrix, na.rm = TRUE),
-    n_stats = length(strsplit(combo, ",")[[1]])
-  ))
-
 }  # End of combo loop
 
-# Step 5: Generate model ranking if multi-combo
-if (is_multi_combo && nrow(model_ranking) > 1) {
-  cat("\n=== Model Ranking ===\n")
-  
-  # Sort by mean TPR (descending)
-  model_ranking <- model_ranking[order(-model_ranking$mean_tpr), ]
-  model_ranking$rank <- 1:nrow(model_ranking)
-  
-  ranking_file <- sub("\\.csv$", "_model_ranking.csv", output_file)
-  write.csv(model_ranking, ranking_file, row.names = FALSE)
-  cat("Model ranking saved to:", ranking_file, "\n")
-  
-  # Print top 10
-  cat("\nTop 10 models by mean TPR:\n")
-  for (i in 1:min(10, nrow(model_ranking))) {
-    row <- model_ranking[i, ]
-    cat(sprintf("  %2d. %s (TPR=%.3f, FPR=%.3f, %d stats)\n",
-                i, row$model, row$mean_tpr, row$mean_fpr, row$n_stats))
-  }
-} else {
-  # Print summary for single combo
-  cat("\n=== Summary ===\n")
-  cat("Threshold percentile:", threshold_percentile, "\n")
-  cat("Mean FPR across V_E ratios:", round(mean(fpr_matrix, na.rm = TRUE), 4), "\n")
-  cat("Mean TPR across all conditions:", round(mean(tpr_matrix, na.rm = TRUE), 4), "\n")
-  cat("\nTPR by adaptive QST level (averaged across V_E ratios):\n")
-  for (i in 1:n_qst) {
-    cat("  QST =", adaptive_qst[i], ":", round(mean(tpr_matrix[i, ], na.rm = TRUE), 4), "\n")
-  }
+cat("\n=== Summary ===\n")
+cat("Threshold percentile:", threshold_percentile, "\n")
+cat("Mean FPR across V_E ratios:", round(mean(fpr_matrix, na.rm = TRUE), 4), "\n")
+cat("Mean TPR across all conditions:", round(mean(tpr_matrix, na.rm = TRUE), 4), "\n")
+cat("\nTPR by adaptive QST level (averaged across V_E ratios):\n")
+for (i in 1:n_qst) {
+  cat("  QST =", adaptive_qst[i], ":", round(mean(tpr_matrix[i, ], na.rm = TRUE), 4), "\n")
 }
 
 cat("\nDone!\n")
