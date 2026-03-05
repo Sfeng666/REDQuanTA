@@ -524,6 +524,12 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
   # Run ABC
   tol <- max(0.001, 50 / n_valid)
   
+  extract_qst <- function(res_abc) {
+    mean(res_abc$adj.values[, 'sd_between_pop']^2 / 
+         (res_abc$adj.values[, 'sd_between_pop']^2 + 
+          2 * res_abc$adj.values[, 'sd_within_pop']^2))
+  }
+
   qst_estimate <- tryCatch({
     res_abc <- abc(
       target = obs_stats[summary_stat_names],
@@ -534,21 +540,30 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
       transf = rep("none", ncol(prior_params_valid)),
       method = "neuralnet"
     )
-    
-    # Extract result immediately
-    result <- mean(res_abc$adj.values[, 'sd_between_pop']^2 / 
-                   (res_abc$adj.values[, 'sd_between_pop']^2 + 
-                    2 * res_abc$adj.values[, 'sd_within_pop']^2))
-    
-    # Clean up ABC result object immediately
+    result <- extract_qst(res_abc)
     rm(res_abc)
     gc(verbose = FALSE)
-    
     result
-    
   }, error = function(e) {
-    warning(paste("ABC failed:", e$message))
-    NA
+    tryCatch({
+      rej_tol <- max(tol, 0.05)
+      res_abc <- abc(
+        target = obs_stats[summary_stat_names],
+        param = prior_params_valid,
+        sumstat = sim_stats_valid[, summary_stat_names],
+        tol = rej_tol,
+        method = "rejection"
+      )
+      result <- mean(res_abc$unadj.values[, 'sd_between_pop']^2 / 
+                     (res_abc$unadj.values[, 'sd_between_pop']^2 + 
+                      2 * res_abc$unadj.values[, 'sd_within_pop']^2))
+      rm(res_abc)
+      gc(verbose = FALSE)
+      result
+    }, error = function(e2) {
+      warning(paste("ABC failed:", e2$message))
+      NA
+    })
   })
   
   # Final cleanup of remaining objects

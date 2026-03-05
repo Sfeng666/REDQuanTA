@@ -20,6 +20,7 @@ NUM_SIM = config.get("num_sim", 100000)
 BATCH_SIZE = config.get("batch_size", 50)
 THRESHOLD_PERCENTILE = config.get("threshold_percentile", 0.95)
 SUMMARY_STATS_COMBOS = config.get("summary_stats_combos", ["QST,F_within_pop"])
+STATS_MAP = {s.replace(",", "_"): s for s in SUMMARY_STATS_COMBOS}
 CHROMOSOMES = config.get("chromosomes", ["autosomes", "chrX"])
 OUTPUT_DIR = config.get("output_dir", "results/evaluate")
 
@@ -38,18 +39,18 @@ rule evaluate_neutral_qst:
         batch="{batch}",
         batch_size=BATCH_SIZE,
         num_sim=NUM_SIM,
-        summary_stats=lambda wildcards: wildcards.stats.replace("_", ","),
+        summary_stats=lambda wildcards: STATS_MAP[wildcards.stats],
         scripts_dir=SCRIPTS_DIR
     threads: config.get("threads_per_job", 1)
     log:
         f"{OUTPUT_DIR}/logs/{{chr}}_{{stats}}_neutral_r{{ratio}}_b{{batch}}.log"
     shell:
         """
-        # Calculate start and end indices for this batch
+        mkdir -p $(dirname {output.neutral_batch})
+        
         START=$(( ({params.batch} - 1) * {params.batch_size} + 1 ))
         END=$(( {params.batch} * {params.batch_size} ))
         
-        # Extract FST values for this batch
         FST_BATCH=$(mktemp)
         sed -n "${{START}},${{END}}p" {input.fst_file} > $FST_BATCH
         
@@ -77,16 +78,20 @@ rule evaluate_adaptive_qst:
         batch="{batch}",
         batch_size=BATCH_SIZE,
         num_sim=NUM_SIM,
-        summary_stats=lambda wildcards: wildcards.stats.replace("_", ","),
+        summary_stats=lambda wildcards: STATS_MAP[wildcards.stats],
         scripts_dir=SCRIPTS_DIR
     threads: config.get("threads_per_job", 1)
     log:
         f"{OUTPUT_DIR}/logs/{{chr}}_{{stats}}_adaptive_q{{qst}}_r{{ratio}}_b{{batch}}.log"
     shell:
         """
+        mkdir -p $(dirname {output.adaptive_batch})
+        
+        START_ID=$(( ({params.batch} - 1) * {params.batch_size} + 1 ))
+        
         Rscript {params.scripts_dir}/qst_abc_sim.R \
             batch_evaluate \
-            {params.adaptive_qst},{params.ve_ratio},{params.batch_size} \
+            "${{START_ID}}_{params.batch_size}_{params.adaptive_qst}" \
             {params.ve_ratio} \
             {output.adaptive_batch} \
             {params.num_sim} \
@@ -118,7 +123,9 @@ rule aggregate_perf_eval:
     params:
         input_dir=f"{OUTPUT_DIR}/{{chr}}/{{stats}}",
         chr="{chr}",
-        summary_stats=lambda wildcards: wildcards.stats.replace("_", ","),
+        adaptive_qst=",".join([str(q) for q in ADAPTIVE_QST_LEVELS]),
+        ve_ratios=",".join([str(r) for r in VE_RATIOS]),
+        threshold_percentile=THRESHOLD_PERCENTILE,
         scripts_dir=SCRIPTS_DIR
     log:
         f"{OUTPUT_DIR}/logs/{{chr}}_{{stats}}_aggregate.log"
@@ -127,7 +134,10 @@ rule aggregate_perf_eval:
         Rscript {params.scripts_dir}/aggregate_perf_eval.R \
             {params.input_dir} \
             {params.chr} \
-            {params.summary_stats} \
+            {params.adaptive_qst} \
+            {params.ve_ratios} \
+            {params.threshold_percentile} \
+            {output.matrix} \
             > {log} 2>&1
         """
 
