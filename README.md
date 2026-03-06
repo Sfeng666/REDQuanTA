@@ -108,6 +108,16 @@ trait001,autosomes,pop1,strain1,rep2,0.541
 | `qst_results.csv` | Detection results (trait_id, chr, QST, adaptive) |
 | `tpr_fpr_matrix_*.csv` | TPR/FPR matrices per chromosome |
 | `combined_model_ranking.csv` | Model performance ranking |
+| `sample_struct_comparison_*/plots/` | Power comparison across sample structures (optional) |
+
+For `qst_results.csv`, blank `QST` and `adaptive` fields do not always mean the workflow failed. In some traits, the observed-data ANOVA summary statistics can fall on a boundary case, such as observed `QST = 0`; then the downstream ABC estimation may return `NA`/`NaN` because there is not enough informative variation for a stable posterior estimate. In that case, the threshold columns can still be produced, and the blank estimate should be interpreted as "uninformative for ABC under this sample/trait pattern" rather than as a pipeline error.
+
+### Sample Structure Comparison (Optional)
+
+When `sample_structures` is set in the evaluate config, the workflow runs the
+evaluation for each structure and produces power comparison plots showing how
+detection power varies with sample size. By default, the comparison uses the
+first summary stats combo; set `comparison_stats` to override.
 
 ## Directory Structure
 

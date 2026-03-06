@@ -1,0 +1,44 @@
+# REDQuanTA Snakemake Workflow
+# Replication-Enhanced Detection of Quantitative Traits under Adaptation
+#
+# Modules:
+#   1. detect: Detect adaptive traits by comparing QST to neutral distribution
+#   2. evaluate: Evaluate method performance (TPR/FPR) across conditions
+
+import os
+from pathlib import Path
+
+configfile: "config/config_detect.yaml"
+
+# Get workflow directory
+WORKFLOW_DIR = Path(workflow.basedir)
+SCRIPTS_DIR = WORKFLOW_DIR / "scripts"
+
+# Output directory from config
+OUTPUT_DIR = config.get("output_dir", "results")
+
+# Include rule modules
+include: "rules/fst_input.smk"
+include: "rules/detect.smk"
+include: "rules/evaluate.smk"
+
+# Default target: Module 1 (detect)
+rule all:
+    input:
+        f"{OUTPUT_DIR}/qst_results.csv"
+
+# Module 2 target: Performance evaluation
+rule evaluate_all:
+    input:
+        expand(
+            "{output_dir}/{chr}/tpr_fpr_matrix_{chr}_{stats}.csv",
+            output_dir=config.get("output_dir", "results/evaluate"),
+            chr=config.get("chromosomes", ["autosomes"]),
+            stats=[s.replace(",", "_") for s in config.get("summary_stats_combos", ["QST_F_within_pop"])]
+        ),
+        f"{config.get('output_dir', 'results/evaluate')}/combined_model_ranking.csv"
+
+# Clean rule
+rule clean:
+    shell:
+        "rm -rf {OUTPUT_DIR}/*"
