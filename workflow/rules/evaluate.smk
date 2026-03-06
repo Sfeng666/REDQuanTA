@@ -184,3 +184,16 @@ rule plot_tpr_performance:
             {params.output_dir} \
             > {log} 2>&1
         """
+
+# === Sample Structure Comparison ===
+SAMPLE_STRUCTS = config.get("sample_structures", [])
+COMPARISON_STATS = config.get("comparison_stats", SUMMARY_STATS_COMBOS[0] if SUMMARY_STATS_COMBOS else "QST,F_within_pop")
+COMPARISON_STATS_SAFE = COMPARISON_STATS.replace(",", "_")
+SS_BASE = f"{OUTPUT_DIR}/sample_struct_comparison_{COMPARISON_STATS_SAFE}"
+
+STRUCT_MAP = {}
+STRUCT_IDS = []
+for _s in SAMPLE_STRUCTS:
+    _sid = f"n2_i{_s['n_ind']}_r{_s['n_rep']}"
+    STRUCT_IDS.append(_sid)
+    STRUCT_MAP[_sid] = _s
