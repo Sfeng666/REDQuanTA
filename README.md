@@ -30,7 +30,7 @@ A workflow for detecting adaptive quantitative trait divergence (Q<sub>ST</sub>)
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/REDQuanTA.git
+git clone https://github.com/sfeng666/REDQuanTA.git
 cd REDQuanTA
 
 # Create conda environment
