@@ -30,7 +30,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 HTCONDOR_DIR = SCRIPT_DIR.parent
 BASE_DIR = HTCONDOR_DIR.parent
 WORKFLOW_DIR = BASE_DIR / "workflow"
-WORKFLOW_SCRIPTS_DIR = WORKFLOW_DIR / "scripts"
+WORKFLOW_SCRIPT_DIR = WORKFLOW_DIR / "scripts"
 DATA_DIR = BASE_DIR / "data"
 INPUT_DIR = DATA_DIR / "example"  # Default to example data
 
@@ -97,9 +97,9 @@ def run_prep_locally(trait_id, trait_values, sample_structure, output_dir):
     
     # Run R script to prepare obs stats
     cmd = [
-        rscript_path, str(WORKFLOW_SCRIPTS_DIR / "prepare_obs_stats.R"),
-        str(trait_values),
+        rscript_path, str(WORKFLOW_SCRIPT_DIR / "prepare_obs_stats.R"),
         str(sample_structure),
+        str(trait_values),
         trait_id,
         str(obs_stats_file)
     ]
@@ -160,13 +160,13 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
         if priority is not None:
             f.write(f", priority: {priority}")
         f.write("\n\n")
-        f.write(f"CONFIG {SCRIPTS_DIR / 'unlimited.config'}\n\n")
+        f.write(f"CONFIG {SCRIPT_DIR / 'unlimited.config'}\n\n")
         
         all_jobs = []
         
         # Job 1: Trait QST estimation
         job_trait = f"trait_{trait_id}"
-        f.write(f"JOB {job_trait} {SCRIPTS_DIR}/abc_qst.sub\n")
+        f.write(f"JOB {job_trait} {SCRIPT_DIR}/abc_qst.sub\n")
         f.write(f'VARS {job_trait} mode="trait" ')
         f.write(f'input="{obs_stats_file.name}" ')
         f.write(f'ratioVext_or_file="ignored" ')
@@ -176,8 +176,8 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
         f.write(f'extra_input_comma=", " ')
         f.write(f'extra_input_files="{obs_stats_file}" ')
         f.write(f'outdir="{trait_outdir}" ')
-        f.write(f'dir_scripts="{SCRIPTS_DIR}" ')
-        f.write(f'dir_code="{WORKFLOW_SCRIPTS_DIR}" ')
+        f.write(f'dir_scripts="{SCRIPT_DIR}" ')
+        f.write(f'dir_code="{WORKFLOW_SCRIPT_DIR}" ')
         f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
         f.write(f'job="{job_trait}"\n')
         all_jobs.append(job_trait)
@@ -191,7 +191,7 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
                 job_neutral = f"batch_{trait_id}_{i}"
                 neutral_file = f"neutral_batch_{i}.RData"
                 
-                f.write(f"JOB {job_neutral} {SCRIPTS_DIR}/abc_batch_neutral.sub\n")
+                f.write(f"JOB {job_neutral} {SCRIPT_DIR}/abc_batch_neutral.sub\n")
                 f.write(f'VARS {job_neutral} fst_input="{batch_file.name}" ')
                 f.write(f'ratioVext="{ratioVext}" ')
                 f.write(f'output_file="{neutral_file}" ')
@@ -199,8 +199,8 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
                 f.write(f'summary_stats="{params["summary_stats"]}" ')
                 f.write(f'fst_file="{batch_file}" ')
                 f.write(f'outdir="{trait_outdir}" ')
-                f.write(f'dir_scripts="{SCRIPTS_DIR}" ')
-                f.write(f'dir_code="{WORKFLOW_SCRIPTS_DIR}" ')
+                f.write(f'dir_scripts="{SCRIPT_DIR}" ')
+                f.write(f'dir_code="{WORKFLOW_SCRIPT_DIR}" ')
                 f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
                 f.write(f'job="{job_neutral}"\n')
                 all_jobs.append(job_neutral)
@@ -213,15 +213,15 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
                 job_neutral = f"neutral_{trait_id}_{i}"
                 neutral_file = f"neutral_{i}.RData"
                 
-                f.write(f"JOB {job_neutral} {SCRIPTS_DIR}/abc_neutral.sub\n")
+                f.write(f"JOB {job_neutral} {SCRIPT_DIR}/abc_neutral.sub\n")
                 f.write(f'VARS {job_neutral} fst_value="{fst_val}" ')
                 f.write(f'ratioVext="{ratioVext}" ')
                 f.write(f'output_file="{neutral_file}" ')
                 f.write(f'num_sim="{params["num_sim"]}" ')
                 f.write(f'summary_stats="{params["summary_stats"]}" ')
                 f.write(f'outdir="{trait_outdir}" ')
-                f.write(f'dir_scripts="{SCRIPTS_DIR}" ')
-                f.write(f'dir_code="{WORKFLOW_SCRIPTS_DIR}" ')
+                f.write(f'dir_scripts="{SCRIPT_DIR}" ')
+                f.write(f'dir_code="{WORKFLOW_SCRIPT_DIR}" ')
                 f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
                 f.write(f'job="{job_neutral}"\n')
                 all_jobs.append(job_neutral)
@@ -249,7 +249,7 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
             agg_f.write("#!/bin/bash\n")
             agg_f.write(f'# Aggregation script for trait {trait_id}\n')
             agg_f.write(f'# Runs on submit node as POST script after all jobs complete\n')
-            agg_f.write(f'{rscript_path} {WORKFLOW_SCRIPTS_DIR}/aggregate_qst.R \\\n')
+            agg_f.write(f'{rscript_path} {WORKFLOW_SCRIPT_DIR}/aggregate_qst.R \\\n')
             agg_f.write(f'    "{trait_outdir}/{trait_qst_file}" \\\n')
             agg_f.write(f'    "{trait_outdir}" \\\n')
             agg_f.write(f'    "{params["threshold_percentile"]}" \\\n')
@@ -261,7 +261,7 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
         # Add NOOP job that depends on all other jobs, with POST script for aggregation
         noop_job = f"noop_{trait_id}"
         f.write(f"# NOOP job that triggers aggregation after all jobs complete\n")
-        f.write(f"JOB {noop_job} {SCRIPTS_DIR}/noop.sub NOOP\n")
+        f.write(f"JOB {noop_job} {SCRIPT_DIR}/noop.sub NOOP\n")
         
         # NOOP depends on all jobs
         f.write(f"PARENT {' '.join(all_jobs)} CHILD {noop_job}\n")
@@ -282,8 +282,8 @@ def main():
                         help="Number of ABC simulations (default: 100000)")
     parser.add_argument("--threshold-percentile", type=float, default=0.95,
                         help="Threshold percentile (default: 0.95)")
-    parser.add_argument("--summary-stats", default="QST,F_within_pop",
-                        help="Summary statistics for ABC (default: QST,F_within_pop)")
+    parser.add_argument("--summary-stats", default="QST,ratioVbetweenVtotal",
+                        help="Summary statistics for ABC (default: QST,ratioVbetweenVtotal)")
     parser.add_argument("--sanity-check", action="store_true",
                         help="Enable sanity check mode")
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,

@@ -62,7 +62,7 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 | `num_sim` | 100000 | ABC simulations per estimation |
 | `batch_size` | 50 | FST values per batch job |
 | `threshold_percentile` | 0.95 | Threshold for adaptive detection |
-| `summary_stats` | `QST,F_within_pop` | Summary statistics for ABC |
+| `summary_stats` | `QST,ratioVbetweenVtotal` | Summary statistics for ABC |
 | `chromosomes` | `[autosomes, chrX]` | Chromosome types to analyze |
 | `output_dir` | `results/detect` | Output directory |
 
@@ -76,7 +76,7 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 | `num_neutral` | 100 | Neutral simulations (reduced for local) |
 | `num_sim` | 100000 | ABC simulations per estimation |
 | `batch_size` | 50 | Values per batch |
-| `summary_stats_combos` | `[QST,F_within_pop, ...]` | Summary stat combinations to evaluate |
+| `summary_stats_combos` | `[QST,ratioVbetweenVtotal, ...]` | Summary stat combinations to evaluate |
 
 ### config/config_evaluate_full.yaml (Module 2 - HTCondor)
 
@@ -154,7 +154,7 @@ snakemake evaluate_all --configfile config/config_evaluate_full.yaml --cores 16
 
 | Combination | Description |
 |-------------|-------------|
-| `QST,F_within_pop` | Q<sub>ST</sub> + within-population F (best performance) |
+| `QST,ratioVbetweenVtotal` | Q<sub>ST</sub> + V<sub>among</sub>/(V<sub>among</sub>+V<sub>within</sub>+V<sub>E</sub>) (default benchmark combo) |
 | `QST,ratioVext` | Q<sub>ST</sub> + V<sub>E</sub>/V<sub>G</sub> ratio |
 | `QST,ext_sd` | Q<sub>ST</sub> + extrinsic SD |
 | `QST` | Q<sub>ST</sub> only |
@@ -170,16 +170,15 @@ snakemake evaluate_all --configfile config/config_evaluate_full.yaml --cores 16
 
 ### R Environment Setup
 
-The `htcondor/env/r_env.tar.gz` contains a pre-packaged R environment. To create your own:
+HTCondor worker jobs expect **`htcondor/env/r_env.tar.gz`** (a **conda-pack** of the conda env defined in **`htcondor/env/r_qst.yml`**: `r-base`, `r-e1071`, `r-abc`). Local Snakemake can still use the full root **`environment.yml`** for plotting and orchestration.
+
+From the repository root, build the tarball on a machine with enough disk quota:
 
 ```bash
-# Create and export conda environment
-conda create -n r_qst -c conda-forge r-base r-abc r-ggplot2 r-viridis r-cowplot r-reshape2 r-e1071
-conda activate r_qst
-conda install -c conda-forge conda-pack
-conda-pack -o r_env.tar.gz
-mv r_env.tar.gz htcondor/env/
+bash htcondor/scripts/pack_r_env.sh
 ```
+
+The output is `htcondor/env/r_env.tar.gz` (listed in `.gitignore` because of size; add it to your release artifacts or transfer out-of-band as needed).
 
 ### Submitting Jobs
 

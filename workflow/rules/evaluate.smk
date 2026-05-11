@@ -19,7 +19,7 @@ NUM_NEUTRAL = config.get("num_neutral", 100)
 NUM_SIM = config.get("num_sim", 100000)
 BATCH_SIZE = config.get("batch_size", 50)
 THRESHOLD_PERCENTILE = config.get("threshold_percentile", 0.95)
-SUMMARY_STATS_COMBOS = config.get("summary_stats_combos", ["QST,F_within_pop"])
+SUMMARY_STATS_COMBOS = config.get("summary_stats_combos", ["QST,ratioVbetweenVtotal"])
 STATS_MAP = {s.replace(",", "_"): s for s in SUMMARY_STATS_COMBOS}
 CHROMOSOMES = config.get("chromosomes", ["autosomes", "chrX"])
 OUTPUT_DIR = config.get("output_dir", "results/evaluate")
@@ -187,7 +187,7 @@ rule plot_tpr_performance:
 
 # === Sample Structure Comparison ===
 SAMPLE_STRUCTS = config.get("sample_structures", [])
-COMPARISON_STATS = config.get("comparison_stats", SUMMARY_STATS_COMBOS[0] if SUMMARY_STATS_COMBOS else "QST,F_within_pop")
+COMPARISON_STATS = config.get("comparison_stats", SUMMARY_STATS_COMBOS[0] if SUMMARY_STATS_COMBOS else "QST,ratioVbetweenVtotal")
 COMPARISON_STATS_SAFE = COMPARISON_STATS.replace(",", "_")
 SS_BASE = f"{OUTPUT_DIR}/sample_struct_comparison_{COMPARISON_STATS_SAFE}"
 

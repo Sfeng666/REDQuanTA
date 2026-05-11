@@ -9,8 +9,11 @@ results/**
 *.dag.*
 *.rescue*
 
-# R environment tarball (too large for git)
+# HTCondor packed R env (large; build via htcondor/scripts/pack_r_env.sh)
 htcondor/env/r_env.tar.gz
+
+# Generated DAG staging from prepare_*_dag.py (local / pilot runs)
+htcondor/results/
 
 # Python cache
 __pycache__/

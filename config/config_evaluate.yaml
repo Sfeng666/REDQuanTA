@@ -27,6 +27,7 @@ threshold_percentile: 0.95
 
 # Summary statistics combinations to evaluate
 summary_stats_combos:
+  - "QST,ratioVbetweenVtotal"
   - "QST,F_within_pop"
   - "QST,ratioVext"
   - "QST"

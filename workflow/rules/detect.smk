@@ -15,7 +15,7 @@ NUM_NEUTRAL = config.get("num_neutral", 100)
 NUM_SIM = config.get("num_sim", 100000)
 BATCH_SIZE = config.get("batch_size", 50)
 THRESHOLD_PERCENTILE = config.get("threshold_percentile", 0.95)
-SUMMARY_STATS = config.get("summary_stats", "QST,F_within_pop")
+SUMMARY_STATS = config.get("summary_stats", "QST,ratioVbetweenVtotal")
 CHROMOSOMES = config.get("chromosomes", ["autosomes", "chrX"])
 OUTPUT_DIR = config.get("output_dir", "results/detect")
 
@@ -40,7 +40,8 @@ rule prepare_obs_stats:
         trait_values=TRAIT_VALUES
     output:
         obs_stats=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_obs_stats.RData",
-        ext_sd=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_ext_sd.txt"
+        ext_sd=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_ext_sd.txt",
+        ratioVext=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_ratioVext.txt"
     params:
         trait_id="{trait}",
         scripts_dir=SCRIPTS_DIR
@@ -54,6 +55,7 @@ rule prepare_obs_stats:
             {params.trait_id} \
             {output.obs_stats} \
             {output.ext_sd} \
+            {output.ratioVext} \
             > {log} 2>&1
         """
 
@@ -85,7 +87,7 @@ rule estimate_trait_qst:
 # Rule: Estimate neutral QST for a batch of FST values
 rule estimate_neutral_qst:
     input:
-        ext_sd=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_ext_sd.txt",
+        ratioVext=f"{OUTPUT_DIR}/{{trait}}/{{trait}}_ratioVext.txt",
         fst_file=lambda wildcards: config.get(f"fst_{wildcards.chr}", f"data/example/qst_neutral_{wildcards.chr}.txt")
     output:
         neutral_batch=f"{OUTPUT_DIR}/{{trait}}/{{chr}}/neutral_batch_{{batch}}.RData"
@@ -108,12 +110,12 @@ rule estimate_neutral_qst:
         FST_BATCH=$(mktemp)
         sed -n "${{START}},${{END}}p" {input.fst_file} > $FST_BATCH
         
-        EXT_SD=$(cat {input.ext_sd})
+        RATIOVEXT=$(cat {input.ratioVext})
         
         Rscript {params.scripts_dir}/qst_abc_sim.R \
             batch_neutral \
             $FST_BATCH \
-            $EXT_SD \
+            $RATIOVEXT \
             {output.neutral_batch} \
             {params.num_sim} \
             {params.summary_stats} \

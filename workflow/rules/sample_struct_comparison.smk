@@ -1,7 +1,7 @@
 # REDQuanTA: Sample Structure Comparison Rules
 SAMPLE_STRUCTS = config.get("sample_structures", [])
 COMPARISON_STATS = config.get("comparison_stats",
-    config.get("summary_stats_combos", ["QST,F_within_pop"])[0])
+    config.get("summary_stats_combos", ["QST,ratioVbetweenVtotal"])[0])
 COMPARISON_STATS_SAFE = COMPARISON_STATS.replace(",", "_")
 SS_BASE = f"{OUTPUT_DIR}/sample_struct_comparison_{COMPARISON_STATS_SAFE}"
 

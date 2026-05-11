@@ -1,0 +1,9 @@
+name: r_qst
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - r-base>=4.0
+  - r-e1071
+  - r-abc
+

@@ -159,7 +159,7 @@ def generate_perf_eval_dag(dag_path, params, chr_type, output_dir):
         f.write(f"# Adaptive QST levels: {params['adaptive_qst']}\n")
         f.write(f"# V_E/V_G ratios: {params['ve_ratios']}\n")
         f.write(f"# Neutral FSTs: {len(fst_values)}, Repeats per condition: {params['num_repeats']}\n\n")
-        f.write(f"CONFIG {SCRIPTS_DIR / 'unlimited.config'}\n\n")
+        f.write(f"CONFIG {SCRIPT_DIR / 'unlimited.config'}\n\n")
         
         # --- Neutral QST Jobs ---
         # For each V_E ratio, estimate QST for all neutral FST values
@@ -194,7 +194,7 @@ def generate_perf_eval_dag(dag_path, params, chr_type, output_dir):
                     extra_input = ''
                     summary_stats_arg = params["summary_stats"]
                 
-                f.write(f"JOB {job_name} {SCRIPTS_DIR}/abc_batch_neutral.sub\n")
+                f.write(f"JOB {job_name} {SCRIPT_DIR}/abc_batch_neutral.sub\n")
                 f.write(f'VARS {job_name} fst_input="{batch_file.name}" ')
                 f.write(f'ratioVext="{ratioVext}" ')
                 f.write(f'output_file="{output_file}" ')
@@ -202,7 +202,7 @@ def generate_perf_eval_dag(dag_path, params, chr_type, output_dir):
                 f.write(f'summary_stats="{summary_stats_arg}" ')
                 f.write(f'fst_file="{batch_file_abs}" ')
                 f.write(f'outdir="{ratio_dir_abs}" ')
-                f.write(f'dir_scripts="{SCRIPTS_DIR}" ')
+                f.write(f'dir_scripts="{SCRIPT_DIR}" ')
                 f.write(f'dir_code="{WORKFLOW_SCRIPTS_DIR}" ')
                 f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
                 f.write(f'extra_input_files="{extra_input}" ')
@@ -251,14 +251,14 @@ def generate_perf_eval_dag(dag_path, params, chr_type, output_dir):
                     # Input format: "start_id_n_repeats_qst_value" (underscore separator to avoid HTCondor colon issues)
                     input_str = f"{start_id}_{n_in_batch}_{qst_value}"
                     
-                    f.write(f"JOB {job_name} {SCRIPTS_DIR}/abc_batch_evaluate.sub\n")
+                    f.write(f"JOB {job_name} {SCRIPT_DIR}/abc_batch_evaluate.sub\n")
                     f.write(f'VARS {job_name} eval_params="{input_str}" ')
                     f.write(f've_ratio="{ve_ratio}" ')
                     f.write(f'output_file="{output_file}" ')
                     f.write(f'num_sim="{params["num_sim"]}" ')
                     f.write(f'summary_stats="{summary_stats_arg}" ')
                     f.write(f'outdir="{condition_dir_abs}" ')
-                    f.write(f'dir_scripts="{SCRIPTS_DIR}" ')
+                    f.write(f'dir_scripts="{SCRIPT_DIR}" ')
                     f.write(f'dir_code="{WORKFLOW_SCRIPTS_DIR}" ')
                     f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
                     f.write(f'extra_input_files="{extra_input}" ')
@@ -274,7 +274,7 @@ def generate_perf_eval_dag(dag_path, params, chr_type, output_dir):
         # Add NOOP job and aggregation POST script
         noop_job = f"noop_perf_eval_{chr_type}"
         f.write("# ===== Aggregation =====\n\n")
-        f.write(f"JOB {noop_job} {SCRIPTS_DIR}/noop.sub NOOP\n")
+        f.write(f"JOB {noop_job} {SCRIPT_DIR}/noop.sub NOOP\n")
         f.write(f"PARENT {' '.join(all_jobs)} CHILD {noop_job}\n")
         
         # Create aggregation script - use absolute paths
@@ -327,9 +327,9 @@ def main():
                         help=f"FST values per job (default: {DEFAULT_BATCH_SIZE})")
     parser.add_argument("--threshold-percentile", type=float, default=DEFAULT_THRESHOLD,
                         help=f"Threshold for adaptive detection (default: {DEFAULT_THRESHOLD})")
-    parser.add_argument("--summary-stats", default="QST,F_within_pop",
+    parser.add_argument("--summary-stats", default="QST,ratioVbetweenVtotal",
                         help="""Summary statistics for ABC:
-                        - Comma-separated stats: 'QST,F_within_pop' (default)
+                        - Comma-separated stats: 'QST,ratioVbetweenVtotal' (default)
                         - Path to file with tab-separated combinations
                         - 'all' to use default combinations file for model ranking""")
     parser.add_argument("--priority", type=int, default=None,

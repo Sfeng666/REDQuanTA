@@ -11,7 +11,7 @@ input=$2
 ext_sd_or_file=$3
 output_file=$4
 num_sim=${5:-100000}
-summary_stats=${6:-"QST,F_within_pop"}
+summary_stats=${6:-"QST,ratioVbetweenVtotal"}
 
 wd=$(pwd)
 echo "Running ABC QST estimation"

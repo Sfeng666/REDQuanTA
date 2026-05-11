@@ -16,12 +16,41 @@
 #   3. ext_sd: Extrinsic SD (from observed trait data)
 #   4. output_file: Path to save results
 #   5. num_sim: Number of ABC simulations (default: 100000)
-#   6. summary_stats: Comma-separated summary statistics (default: "QST,F_within_pop")
+#   6. summary_stats: Comma-separated summary statistics (default: "QST,ratioVbetweenVtotal")
 
 suppressPackageStartupMessages({
   library(abc)
   library(parallel)
 })
+
+# QST_ABC_METHOD: neuralnet | rejection | loclinear | ridge (rej -> rejection). Default neuralnet.
+get_abc_method <- function() {
+  m <- trimws(Sys.getenv("QST_ABC_METHOD", "neuralnet"))
+  if (m == "rej") m <- "rejection"
+  if (!nzchar(m)) m <- "neuralnet"
+  m
+}
+
+# Relative ABC tolerance: tol = max(0.001, QST_ABC_TOL_NUMERATOR / n_valid). Default 50 (matches legacy).
+get_abc_tol_numerator <- function() {
+  v <- suppressWarnings(as.integer(Sys.getenv("QST_ABC_TOL_NUMERATOR", "50")))
+  if (length(v) != 1L || is.na(v) || v < 1L) 50L else v
+}
+run_abc_qst <- function(target, param, sumstat, tol, transf) {
+  meth <- get_abc_method()
+  if (meth == "neuralnet") {
+    abc(target = target, param = param, sumstat = sumstat, tol = tol, transf = transf,
+        method = meth, sizenet = 10)
+  } else {
+    abc(target = target, param = param, sumstat = sumstat, tol = tol, transf = transf, method = meth)
+  }
+}
+qst_mean_from_abc <- function(res_abc) {
+  m <- res_abc$adj.values
+  if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) m <- res_abc$unadj.values
+  if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) return(NA_real_)
+  mean(m[, "sd_between_pop"]^2 / (m[, "sd_between_pop"]^2 + 2 * m[, "sd_within_pop"]^2))
+}
 
 # Load e1071 only if needed (for skewness and kurtosis)
 .e1071_loaded <- FALSE
@@ -37,9 +66,12 @@ load_e1071_if_needed <- function() {
 # 4 cores is a good balance between speed and memory for CHTC jobs with 4GB limit
 num_cores <- min(4, max(1, detectCores() - 1))
 
-# All possible summary statistics
-ALL_SUMMARY_STATS <- c("among_pop_sd", "within_pop_sd", "ext_sd", "QST", "ratioVext", 
-                       "F_among_pop", "F_within_pop", "skewness_data", "kurtosis_data")
+# All possible summary statistics (expanded pool; skewness/kurtosis removed from default pool)
+ALL_SUMMARY_STATS <- c(
+  "among_pop_sd", "within_pop_sd", "ext_sd", "QST", "ratioVext",
+  "F_among_pop", "F_within_pop",
+  "ratioVbetweenVext", "ratioVbetweenVtotal", "ratioVwithinVtotal", "ratioVextVtotal"
+)
 
 # Basic stats always calculated (needed for variance components)
 BASIC_STATS <- c("among_pop_sd", "within_pop_sd", "ext_sd")
@@ -63,7 +95,7 @@ get_required_stats <- function(summary_stat_combos) {
 }
 
 #' Parse summary stats argument
-#' Supports: comma-separated string, "all", or file path
+#' Supports: comma-separated string or file path
 #' 
 #' @param summary_stats_arg The argument value (string, "all", or file path)
 #' @return List of character vectors, each specifying a combination
@@ -87,89 +119,14 @@ parse_summary_stats <- function(summary_stats_arg) {
     return(combos)
   }
   
-  # If "all" is specified, return NULL (will be generated from simulation)
+  # Legacy mode intentionally removed: correlation-based combo generation
   if (summary_stats_arg == "all") {
-    return(NULL)  # Signal to generate from simulation
+    stop("'all' is no longer supported. Pass an explicit combo file path instead.")
   }
   
   # Otherwise, parse as comma-separated single combination
   stats <- strsplit(summary_stats_arg, ",")[[1]]
   return(list(stats))
-}
-
-#' Calculate correlation p-value matrix
-#' Simple implementation without corrplot dependency
-cor_pvalue_matrix <- function(mat) {
-  n <- ncol(mat)
-  pmat <- matrix(1, nrow = n, ncol = n)
-  colnames(pmat) <- rownames(pmat) <- colnames(mat)
-  
-  for (i in 1:(n-1)) {
-    for (j in (i+1):n) {
-      test <- cor.test(mat[, i], mat[, j])
-      pmat[i, j] <- pmat[j, i] <- test$p.value
-    }
-  }
-  return(pmat)
-}
-
-#' Generate uncorrelated summary stat combinations from simulation data
-#' Based on legacy script's approach
-#' 
-#' @param sim_stats_matrix Matrix of simulated summary statistics
-#' @param pvalue_threshold P-value threshold for correlation (default: 0.01)
-#' @return List of character vectors, each specifying an uncorrelated combination
-generate_uncorrelated_combos <- function(sim_stats_matrix, pvalue_threshold = 0.01) {
-  # Calculate correlation matrix and p-values
-  correlation_matrix <- cor(sim_stats_matrix, method = "pearson")
-  pvalue_matrix <- cor_pvalue_matrix(sim_stats_matrix)
-  
-  # Set diagonal to 1 and 0 to avoid self-exclusion
-  diag(pvalue_matrix) <- 1
-  diag(correlation_matrix) <- 0
-  
-  # Function to calculate weighted score
-  calculate_weighted_score <- function(corr_mat) {
-    apply(corr_mat, 1, function(x) sum(abs(x)))
-  }
-  
-  # Function to exclude correlated stats
-  exclude_correlated <- function(corr_mat, pval_mat, threshold) {
-    while (any(pval_mat < threshold, na.rm = TRUE)) {
-      weighted_scores <- calculate_weighted_score(corr_mat)
-      stat_to_exclude <- which.max(weighted_scores)
-      corr_mat <- corr_mat[-stat_to_exclude, -stat_to_exclude, drop = FALSE]
-      pval_mat <- pval_mat[-stat_to_exclude, -stat_to_exclude, drop = FALSE]
-    }
-    return(list(correlation_matrix = corr_mat, pvalue_matrix = pval_mat))
-  }
-  
-  # Generate all possible combinations
-  stat_names <- colnames(correlation_matrix)
-  all_combos <- list()
-  for (size in 1:length(stat_names)) {
-    combos <- combn(stat_names, size, simplify = FALSE)
-    all_combos <- c(all_combos, combos)
-  }
-  
-  # Filter to keep only uncorrelated combinations
-  filtered_combos <- lapply(all_combos, function(combo) {
-    if (length(combo) == 1) return(combo)
-    
-    # Get submatrix for this combination
-    sub_corr <- correlation_matrix[combo, combo, drop = FALSE]
-    sub_pval <- pvalue_matrix[combo, combo, drop = FALSE]
-    
-    result <- exclude_correlated(sub_corr, sub_pval, pvalue_threshold)
-    return(rownames(result$correlation_matrix))
-  })
-  
-  # Remove NULL and duplicate combinations
-  filtered_combos <- Filter(Negate(is.null), filtered_combos)
-  filtered_combos <- unique(filtered_combos)
-  
-  cat("Generated", length(filtered_combos), "uncorrelated combinations\n")
-  return(filtered_combos)
 }
 
 # Fixed parameters matching sample structure - load from environment or use defaults
@@ -221,14 +178,24 @@ calc_variance_fast <- function(trait_values) {
   SS_within <- sum((line_means - pop_means_expanded)^2) * num_rep
   SS_residual <- sum((trait_values - line_means_expanded)^2)
   
+  # Total SS/MS of simulated trait values (grand mean); scales with trait magnitude.
+  SS_total <- sum((trait_values - overall_mean)^2)
+  MS_total <- SS_total / max(.n_total - 1L, 1L)
+  
   # Mean squares and variance components
   MS_among <- SS_among / .DF_among
   MS_within <- SS_within / .DF_within
   MS_residual <- SS_residual / .DF_residual
   
-  var_among <- max((MS_among - MS_within) / (num_ind * num_rep), 0)
-  var_within <- max((MS_within - MS_residual) / num_rep, 0)
+  var_among_raw <- (MS_among - MS_within) / (num_ind * num_rep)
+  var_within_raw <- (MS_within - MS_residual) / num_rep
   var_residual <- max(MS_residual, 0)
+  
+  # Soft-clip: when ANOVA estimates are negative, replace with a negligible value
+  # (1e-8 * MS_total) instead of exact 0. Fallback 1e-8 when MS_total is 0 (degenerate trait vector).
+  floor <- if (MS_total > 0) 1e-8 * MS_total else 1e-8
+  var_among  <- if (var_among_raw  > 0) var_among_raw  else floor
+  var_within <- if (var_within_raw > 0) var_within_raw else floor
   
   return(c(var_among, var_within, var_residual))
 }
@@ -287,18 +254,30 @@ generate_sim_data_summarystats <- function(
   if ("F_within_pop" %in% required_stats) {
     result["F_within_pop"] <- if (total_genetic_var == 0 || ext_var == 0) 0 else within_pop_var / ext_var
   }
-  
-  # Higher-order moments (expensive - only calculate if needed)
+
+  total_var <- among_pop_var + within_pop_var + ext_var
+  if ("ratioVbetweenVext" %in% required_stats) {
+    result["ratioVbetweenVext"] <- if (ext_var == 0) 0 else among_pop_var / ext_var
+  }
+  if ("ratioVbetweenVtotal" %in% required_stats) {
+    result["ratioVbetweenVtotal"] <- if (total_var == 0) 0 else among_pop_var / total_var
+  }
+  if ("ratioVwithinVtotal" %in% required_stats) {
+    result["ratioVwithinVtotal"] <- if (total_var == 0) 0 else within_pop_var / total_var
+  }
+  if ("ratioVextVtotal" %in% required_stats) {
+    result["ratioVextVtotal"] <- if (total_var == 0) 0 else ext_var / total_var
+  }
+
   if ("skewness_data" %in% required_stats) {
     load_e1071_if_needed()
     result["skewness_data"] <- skewness(trait_values)
   }
-  
   if ("kurtosis_data" %in% required_stats) {
     load_e1071_if_needed()
     result["kurtosis_data"] <- kurtosis(trait_values)
   }
-  
+
   return(result)
 }
 
@@ -333,7 +312,7 @@ run_batch_simulations <- function(batch_size, sd_between_pop_batch, sd_within_po
 #' @param num_sim Number of ABC simulations (default: 100000)
 #' @param summary_stat_combos List of character vectors, each specifying a combination
 #' @return Named list with QST estimates for each combination
-estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_combos) {
+estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_combos, last_abc_env = NULL) {
   
   # Ensure cleanup happens even on error
   on.exit(gc(verbose = FALSE, full = TRUE, reset = TRUE), add = TRUE)
@@ -341,16 +320,20 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
   # OPTIMIZATION: Determine which stats are actually needed
   required_stats <- get_required_stats(summary_stat_combos)
   n_stats <- length(required_stats)
-  cat("Required stats (", n_stats, "/9):", paste(required_stats, collapse = ", "), "\n")
+  cat("Required stats (", n_stats, "/", length(ALL_SUMMARY_STATS), "):",
+      paste(required_stats, collapse = ", "), "\n")
   
   batch_size <- 5000  # Smaller batches reduce peak memory from forking
   num_batches <- ceiling(num_sim / batch_size)
   
-  # Generate prior parameters based on observed stats
-  sd_between_pop_prior <- runif(num_sim, 0, 2 * obs_stats['among_pop_sd'])
-  sd_within_pop_prior <- runif(num_sim, sqrt(0.001) * sd_between_pop_prior, 
-                               sqrt(10) * sd_between_pop_prior)
-  sd_ext_prior <- runif(num_sim, 0, 2 * obs_stats['ext_sd'])
+  # Generate prior parameters based on observed stats.
+  # prior_floor prevents degenerate priors when observed genetic SDs are tiny.
+  # Uses 0.1*(among + within + ext): ext_sd coupling is 0.1x, not the old 0.2x
+  # that artificially inflated neutral Q_ST at high V_E/V_G.
+  prior_floor <- 0.1 * (obs_stats['among_pop_sd'] + obs_stats['within_pop_sd'] + obs_stats['ext_sd'])
+  sd_between_pop_prior <- runif(num_sim, 0, max(2 * obs_stats['among_pop_sd'], prior_floor))
+  sd_within_pop_prior  <- runif(num_sim, 0, max(2 * obs_stats['within_pop_sd'], prior_floor))
+  sd_ext_prior         <- runif(num_sim, 0, 2 * obs_stats['ext_sd'])
   
   # Pre-allocate result matrix - ONLY for required stats (memory optimization)
   sim_stats_matrix <- matrix(NA, nrow = num_sim, ncol = n_stats)
@@ -399,7 +382,7 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
   
   # Run ABC for EACH combination on the SAME simulated data
   # MEMORY OPTIMIZATION: Aggressive cleanup after each combo
-  tol <- max(0.001, 50 / n_valid)
+  tol <- max(0.001, get_abc_tol_numerator() / n_valid)
   results <- list()
   
   for (i in seq_along(summary_stat_combos)) {
@@ -407,31 +390,30 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
     combo_name <- paste(combo, collapse = ",")
     
     qst_estimate <- tryCatch({
-      # Extract subset for this combo
       combo_sumstat <- sim_stats_valid[, combo, drop = FALSE]
       combo_target <- obs_stats_subset[combo]
       
-      res_abc <- abc(
+      res_abc <- run_abc_qst(
         target = combo_target,
         param = prior_params_valid,
         sumstat = combo_sumstat,
-        sizenet = 10,
         tol = tol,
-        transf = rep("none", ncol(prior_params_valid)),
-        method = "neuralnet"
+        transf = rep("none", ncol(prior_params_valid))
       )
-      
-      result <- mean(res_abc$adj.values[, 'sd_between_pop']^2 / 
-                     (res_abc$adj.values[, 'sd_between_pop']^2 + 
-                      2 * res_abc$adj.values[, 'sd_within_pop']^2))
-      
-      # AGGRESSIVE CLEANUP after each ABC run
+      if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
+        assign("res_abc", res_abc, envir = last_abc_env)
+        assign("last_error", NULL, envir = last_abc_env)
+      }
+      result <- qst_mean_from_abc(res_abc)
       rm(res_abc, combo_sumstat, combo_target)
       gc(verbose = FALSE, reset = TRUE)
-      
       result
       
     }, error = function(e) {
+      if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
+        assign("res_abc", NULL, envir = last_abc_env)
+        assign("last_error", conditionMessage(e), envir = last_abc_env)
+      }
       warning(paste("ABC failed for", combo_name, ":", e$message))
       gc(verbose = FALSE, reset = TRUE)
       NA
@@ -458,7 +440,7 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
 #' @param num_sim Number of ABC simulations (default: 100000)
 #' @param summary_stat_names Vector of summary statistic names to use for ABC
 #' @return Estimated QST value
-estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = c("QST", "ratioVext")) {
+estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = c("QST", "ratioVext"), last_abc_env = NULL) {
   
   # Ensure cleanup happens even on error - use reset=TRUE to return memory to OS
   on.exit(gc(verbose = FALSE, full = TRUE, reset = TRUE), add = TRUE)
@@ -466,11 +448,14 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
   batch_size <- 5000  # Smaller batches reduce peak memory from forking
   num_batches <- ceiling(num_sim / batch_size)
   
-  # Generate prior parameters based on observed stats
-  sd_between_pop_prior <- runif(num_sim, 0, 2 * obs_stats['among_pop_sd'])
-  sd_within_pop_prior <- runif(num_sim, sqrt(0.001) * sd_between_pop_prior, 
-                                sqrt(10) * sd_between_pop_prior)
-  sd_ext_prior <- runif(num_sim, 0, 2 * obs_stats['ext_sd'])
+  # Generate prior parameters based on observed stats.
+  # prior_floor prevents degenerate priors when observed genetic SDs are tiny.
+  # Uses 0.1*(among + within + ext): ext_sd coupling is 0.1x, not the old 0.2x
+  # that artificially inflated neutral Q_ST at high V_E/V_G.
+  prior_floor <- 0.1 * (obs_stats['among_pop_sd'] + obs_stats['within_pop_sd'] + obs_stats['ext_sd'])
+  sd_between_pop_prior <- runif(num_sim, 0, max(2 * obs_stats['among_pop_sd'], prior_floor))
+  sd_within_pop_prior  <- runif(num_sim, 0, max(2 * obs_stats['within_pop_sd'], prior_floor))
+  sd_ext_prior         <- runif(num_sim, 0, 2 * obs_stats['ext_sd'])
   
   # Pre-allocate result matrices
   # Dimensions determined by ALL_SUMMARY_STATS (defined at top of script)
@@ -522,48 +507,32 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
   cat("Valid simulations:", n_valid, "/", num_sim, "\n")
   
   # Run ABC
-  tol <- max(0.001, 50 / n_valid)
+  tol <- max(0.001, get_abc_tol_numerator() / n_valid)
   
-  extract_qst <- function(res_abc) {
-    mean(res_abc$adj.values[, 'sd_between_pop']^2 / 
-         (res_abc$adj.values[, 'sd_between_pop']^2 + 
-          2 * res_abc$adj.values[, 'sd_within_pop']^2))
-  }
-
   qst_estimate <- tryCatch({
-    res_abc <- abc(
+    res_abc <- run_abc_qst(
       target = obs_stats[summary_stat_names],
       param = prior_params_valid,
       sumstat = sim_stats_valid[, summary_stat_names],
-      sizenet = 10,
       tol = tol,
-      transf = rep("none", ncol(prior_params_valid)),
-      method = "neuralnet"
+      transf = rep("none", ncol(prior_params_valid))
     )
-    result <- extract_qst(res_abc)
+    if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
+      assign("res_abc", res_abc, envir = last_abc_env)
+      assign("last_error", NULL, envir = last_abc_env)
+    }
+    result <- qst_mean_from_abc(res_abc)
     rm(res_abc)
     gc(verbose = FALSE)
     result
+    
   }, error = function(e) {
-    tryCatch({
-      rej_tol <- max(tol, 0.05)
-      res_abc <- abc(
-        target = obs_stats[summary_stat_names],
-        param = prior_params_valid,
-        sumstat = sim_stats_valid[, summary_stat_names],
-        tol = rej_tol,
-        method = "rejection"
-      )
-      result <- mean(res_abc$unadj.values[, 'sd_between_pop']^2 / 
-                     (res_abc$unadj.values[, 'sd_between_pop']^2 + 
-                      2 * res_abc$unadj.values[, 'sd_within_pop']^2))
-      rm(res_abc)
-      gc(verbose = FALSE)
-      result
-    }, error = function(e2) {
-      warning(paste("ABC failed:", e2$message))
-      NA
-    })
+    if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
+      assign("res_abc", NULL, envir = last_abc_env)
+      assign("last_error", conditionMessage(e), envir = last_abc_env)
+    }
+    warning(paste("ABC failed:", e$message))
+    NA
   })
   
   # Final cleanup of remaining objects
@@ -879,8 +848,8 @@ process_fst_batch <- function(fst_values, ratioVext, num_sim, summary_stat_names
   return(results)
 }
 
-# Command-line interface
-if (!interactive()) {
+# Command-line interface (skip when sourcing for diagnostics: Sys.setenv(QST_ABC_SOURCE_ONLY=1))
+if (!interactive() && Sys.getenv("QST_ABC_SOURCE_ONLY", "") != "1") {
   args <- commandArgs(trailingOnly = TRUE)
   
   if (length(args) < 4) {
@@ -905,9 +874,8 @@ if (!interactive()) {
     cat("  output_file: Path to save result\n")
     cat("  num_sim: Number of ABC simulations (default: 100000)\n")
     cat("  summary_stats: Can be one of:\n")
-    cat("                 - Comma-separated stats: 'QST,F_within_pop' (default)\n")
+    cat("                 - Comma-separated stats: 'QST,ratioVbetweenVtotal' (default)\n")
     cat("                 - Path to file with tab-separated combinations\n")
-    cat("                 - 'all' to generate uncorrelated combinations from simulation\n")
     quit(status = 1)
   }
   
@@ -916,18 +884,15 @@ if (!interactive()) {
   ratioVext_arg <- args[3]
   output_file <- args[4]
   num_sim <- if (length(args) >= 5) as.numeric(args[5]) else 100000
-  summary_stats_arg <- if (length(args) >= 6) args[6] else "QST,F_within_pop"
+  summary_stats_arg <- if (length(args) >= 6) args[6] else "QST,ratioVbetweenVtotal"
   
-  # Parse summary stats argument - can be comma-string, file path, or "all"
+  # Parse summary stats argument - comma-string or file path
   summary_stat_combos <- parse_summary_stats(summary_stats_arg)
   is_multi_combo <- !is.null(summary_stat_combos) && length(summary_stat_combos) > 1
   
   # For single combination, extract the vector
   if (!is.null(summary_stat_combos) && length(summary_stat_combos) == 1) {
     summary_stats <- summary_stat_combos[[1]]
-  } else if (is.null(summary_stat_combos)) {
-    # "all" was specified - will generate from simulation
-    summary_stats <- c("QST", "ratioVext")  # Default for now
   } else {
     summary_stats <- summary_stat_combos[[1]]  # Use first for display
   }

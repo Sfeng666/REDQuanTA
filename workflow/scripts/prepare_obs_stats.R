@@ -3,7 +3,7 @@
 # This generates the obs_stats needed for ABC estimation
 #
 # Usage:
-#   Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file]
+#   Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file] [ratioVext_file]
 #
 # Arguments:
 #   1. sample_structure_csv: Path to sample structure CSV
@@ -11,13 +11,14 @@
 #   3. trait_id: Trait ID to process
 #   4. output_file: Path to save obs_stats RData
 #   5. ext_sd_file: (optional) Path to save ext_sd value as text
+#   6. ratioVext_file: (optional) Path to save V_E/V_G (ratioVext) for batch_neutral ABC jobs
 
 # No additional libraries needed - only base R functions used
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 4) {
-  cat("Usage: Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file]\n")
+  cat("Usage: Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file] [ratioVext_file]\n")
   quit(status = 1)
 }
 
@@ -26,6 +27,7 @@ trait_values_path <- args[2]
 trait_id <- args[3]
 output_file <- args[4]
 ext_sd_file <- if (length(args) >= 5) args[5] else NULL
+ratioVext_file <- if (length(args) >= 6) args[6] else NULL
 
 # Read sample structure
 sample_structure <- read.csv(sample_structure_path)
@@ -90,19 +92,22 @@ among_pop_var <- variance_components$var_among
 within_pop_var <- variance_components$var_within
 ext_var <- variance_components$var_residual
 
-total_genetic_var <- among_pop_var + within_pop_var
+total_genetic <- among_pop_var + within_pop_var
+total_var <- among_pop_var + within_pop_var + ext_var
 
-if (total_genetic_var == 0) {
+if (total_genetic == 0) {
   QST <- 0
   ratioVext <- 0
-  F_among_pop <- 0
-  F_within_pop <- 0
 } else {
   QST <- among_pop_var / (among_pop_var + 2 * within_pop_var)
-  ratioVext <- ext_var / total_genetic_var
-  F_among_pop <- if (within_pop_var == 0) 0 else among_pop_var / within_pop_var
-  F_within_pop <- if (ext_var == 0) 0 else within_pop_var / ext_var
+  ratioVext <- ext_var / total_genetic
 }
+F_among_pop <- if (total_genetic == 0 || within_pop_var == 0) 0 else among_pop_var / within_pop_var
+F_within_pop <- if (total_genetic == 0 || ext_var == 0) 0 else within_pop_var / ext_var
+ratioVbetweenVext <- if (ext_var == 0) 0 else among_pop_var / ext_var
+ratioVbetweenVtotal <- if (total_var == 0) 0 else among_pop_var / total_var
+ratioVwithinVtotal <- if (total_var == 0) 0 else within_pop_var / total_var
+ratioVextVtotal <- if (total_var == 0) 0 else ext_var / total_var
 
 obs_stats <- c(
   among_pop_sd = sqrt(among_pop_var),
@@ -111,7 +116,11 @@ obs_stats <- c(
   QST = QST,
   ratioVext = ratioVext,
   F_among_pop = F_among_pop,
-  F_within_pop = F_within_pop
+  F_within_pop = F_within_pop,
+  ratioVbetweenVext = ratioVbetweenVext,
+  ratioVbetweenVtotal = ratioVbetweenVtotal,
+  ratioVwithinVtotal = ratioVwithinVtotal,
+  ratioVextVtotal = ratioVextVtotal
 )
 
 # Also save metadata
@@ -133,5 +142,10 @@ cat("among_pop_sd:", obs_stats['among_pop_sd'], "\n")
 if (!is.null(ext_sd_file)) {
   writeLines(as.character(obs_stats['ext_sd']), ext_sd_file)
   cat("ext_sd saved to:", ext_sd_file, "\n")
+}
+
+if (!is.null(ratioVext_file)) {
+  writeLines(as.character(obs_stats['ratioVext']), ratioVext_file)
+  cat("ratioVext saved to:", ratioVext_file, "\n")
 }
 

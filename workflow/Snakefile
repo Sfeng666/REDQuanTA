@@ -15,7 +15,7 @@ rule all:
 def _evaluate_all_inputs():
     _od = config.get("output_dir", "results/evaluate")
     _chrs = config.get("chromosomes", ["autosomes"])
-    _combos = config.get("summary_stats_combos", ["QST,F_within_pop"])
+    _combos = config.get("summary_stats_combos", ["QST,ratioVbetweenVtotal"])
     inputs = expand(
         "{od}/{chr}/tpr_fpr_matrix_{chr}_{stats}.csv",
         od=_od, chr=_chrs,
