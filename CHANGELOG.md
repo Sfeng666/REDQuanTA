@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Optional script `workflow/scripts/perf_eval_all_combos_fast_cell_v2.R` for large all-subset performance evaluation (same sourced ABC core as Module 2; not part of the default Snakemake graph).
+- Optional script `workflow/scripts/benchmark_loclinear_fast_vs_abc.R`: on a shared simulation pool, compares `fast_abc_estimate_multi` to `abc::abc` with `method = "loclinear"` (numeric agreement and relative timings).
 - `prepare_obs_stats.R` optional sixth argument: path to write observed **V_E/V_G** (`ratioVext`) as text for neutral-batch ABC jobs.
 - Output `{trait}_ratioVext.txt` from Module 1 prep when using Snakemake.
 - **`htcondor/env/r_qst.yml`** and **`htcondor/env/r_env.tar.gz`**: conda recipe and conda-packed R bundle for HTCondor workers (aligned with `code/chtc/env` in qst_workflow); **`htcondor/scripts/pack_r_env.sh`** rebuilds `r_env.tar.gz` from `r_qst.yml`. Tarball remains gitignored by default due to size.
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ABC core (`workflow/scripts/qst_abc_sim.R`)** aligned with the soft-clip / prior-flooring reference implementation: expanded summary-stat pool (including ratio summaries), soft-clipped negative ANOVA variance components in simulation, **prior_floor** on genetic SD priors (0.1× sum of observed SDs), `QST_ABC_METHOD` and `QST_ABC_TOL_NUMERATOR` environment controls, and `run_abc_qst` / `qst_mean_from_abc` wiring consistent with `abc::abc`.
 - **Default summary-stat combination** for Module 1 and Module 2 is now **`QST,ratioVbetweenVtotal`** (configs, Snakemake rule defaults, HTCondor wrappers, and CLI fallback in `qst_abc_sim.R`).
+- **Default `QST_ABC_METHOD`** in `qst_abc_sim.R` is now **`loclinear`** (was `neuralnet`); set the environment variable to override.
 - **`prepare_obs_stats.R`**: observed summaries now include `ratioVbetweenVext`, `ratioVbetweenVtotal`, `ratioVwithinVtotal`, and `ratioVextVtotal`, matching the benchmark pipeline used for performance evaluation.
 - **`README_details.md`**: default combo documentation updated to match.
 

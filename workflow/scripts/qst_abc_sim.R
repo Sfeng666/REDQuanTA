@@ -23,11 +23,11 @@ suppressPackageStartupMessages({
   library(parallel)
 })
 
-# QST_ABC_METHOD: neuralnet | rejection | loclinear | ridge (rej -> rejection). Default neuralnet.
+# QST_ABC_METHOD: neuralnet | rejection | loclinear | ridge (rej -> rejection). Default loclinear.
 get_abc_method <- function() {
-  m <- trimws(Sys.getenv("QST_ABC_METHOD", "neuralnet"))
+  m <- trimws(Sys.getenv("QST_ABC_METHOD", "loclinear"))
   if (m == "rej") m <- "rejection"
-  if (!nzchar(m)) m <- "neuralnet"
+  if (!nzchar(m)) m <- "loclinear"
   m
 }
 

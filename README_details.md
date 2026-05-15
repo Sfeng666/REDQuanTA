@@ -353,9 +353,9 @@ cat results/dags/*.err
 ### ABC Estimation Parameters
 
 - **Simulations**: 100,000 per estimation
-- **Method**: Neural network regression (`method = "neuralnet"`)
+- **Method**: Local linear regression (`method = "loclinear"`) via `abc::abc` by default; override with `QST_ABC_METHOD` (`neuralnet`, `rejection`, `ridge`, etc.)
 - **Tolerance**: Dynamically adjusted for sufficient accepted samples
-- **Summary statistics**: Configurable; default: QST, F<sub>within_pop</sub>
+- **Summary statistics**: Configurable; default: QST, ratioVbetweenVtotal
 
 ### Variance Components
 
