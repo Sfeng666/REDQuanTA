@@ -4,12 +4,12 @@
 
 universe = vanilla
 executable = $(dir_scripts)/run_abc_qst.sh
-arguments = batch_neutral $(fst_input) $(ext_sd) $(output_file) $(num_sim) $(summary_stats)
+arguments = batch_neutral $(fst_input) $(ratioVext) $(output_file) $(num_sim) $(summary_stats)
 environment = "$(environment)"
 
 # Transfer R script, FST batch file, environment, and optional combos file
 # Note: combos_file is included in the comma-separated list when provided
-transfer_input_files = $(dir_code)/qst_abc_sim.R, $(fst_file), $(r_env_tarball)$(extra_input_files)
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(fst_file), $(r_env_tarball)$(extra_input_files)
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 transfer_output_files = $(output_file)

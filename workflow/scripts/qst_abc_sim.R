@@ -23,7 +23,28 @@ suppressPackageStartupMessages({
   library(parallel)
 })
 
+# Fast loclinear / rejection (no abc::abc for those methods); same directory as this script.
+{
+  e <- Sys.getenv("QST_ABC_SCRIPT_DIR", unset = "")
+  script_dir <- if (nzchar(e)) {
+    e
+  } else {
+    a <- commandArgs(trailingOnly = FALSE)
+    f <- grep("^--file=", a, value = TRUE)
+    if (length(f)) {
+      dirname(normalizePath(sub("^--file=", "", f[[1]]), winslash = "/"))
+    } else {
+      getwd()
+    }
+  }
+  fast_src <- file.path(script_dir, "abc_fast_estimators.R")
+  if (!file.exists(fast_src)) stop("Missing required file: ", fast_src)
+  sys.source(fast_src, envir = .GlobalEnv)
+}
+
 # QST_ABC_METHOD: neuralnet | rejection | loclinear | ridge (rej -> rejection). Default loclinear.
+# loclinear and rejection use the vectorized implementation in abc_fast_estimators.R (same
+# numerical results as abc::abc on a fixed reference pool). neuralnet and ridge use abc::abc.
 get_abc_method <- function() {
   m <- trimws(Sys.getenv("QST_ABC_METHOD", "loclinear"))
   if (m == "rej") m <- "rejection"
@@ -38,14 +59,27 @@ get_abc_tol_numerator <- function() {
 }
 run_abc_qst <- function(target, param, sumstat, tol, transf) {
   meth <- get_abc_method()
-  if (meth == "neuralnet") {
-    abc(target = target, param = param, sumstat = sumstat, tol = tol, transf = transf,
-        method = meth, sizenet = 10)
-  } else {
-    abc(target = target, param = param, sumstat = sumstat, tol = tol, transf = transf, method = meth)
+  if (meth %in% c("loclinear", "rejection")) {
+    q <- fast_abc_estimate_one(
+      target, param, sumstat, tol,
+      estimator = meth, hcorr = TRUE
+    )
+    return(list(fast_scalar_qst = q))
   }
+  if (meth == "neuralnet") {
+    return(abc(
+      target = target, param = param, sumstat = sumstat, tol = tol, transf = transf,
+      method = meth, sizenet = 10
+    ))
+  }
+  abc(target = target, param = param, sumstat = sumstat, tol = tol, transf = transf, method = meth)
 }
 qst_mean_from_abc <- function(res_abc) {
+  if (is.list(res_abc) && !is.null(res_abc$fast_scalar_qst)) {
+    v <- res_abc$fast_scalar_qst
+    if (length(v) == 1L && is.finite(v)) return(as.numeric(v))
+    return(NA_real_)
+  }
   m <- res_abc$adj.values
   if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) m <- res_abc$unadj.values
   if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) return(NA_real_)
@@ -381,52 +415,73 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
   obs_stats_subset <- obs_stats[required_stats]
   
   # Run ABC for EACH combination on the SAME simulated data
-  # MEMORY OPTIMIZATION: Aggressive cleanup after each combo
+  # MEMORY OPTIMIZATION: Aggressive cleanup after each combo (package abc path only)
   tol <- max(0.001, get_abc_tol_numerator() / n_valid)
   results <- list()
-  
-  for (i in seq_along(summary_stat_combos)) {
-    combo <- summary_stat_combos[[i]]
-    combo_name <- paste(combo, collapse = ",")
-    
-    qst_estimate <- tryCatch({
-      combo_sumstat <- sim_stats_valid[, combo, drop = FALSE]
-      combo_target <- obs_stats_subset[combo]
-      
-      res_abc <- run_abc_qst(
-        target = combo_target,
-        param = prior_params_valid,
-        sumstat = combo_sumstat,
-        tol = tol,
-        transf = rep("none", ncol(prior_params_valid))
-      )
-      if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
-        assign("res_abc", res_abc, envir = last_abc_env)
-        assign("last_error", NULL, envir = last_abc_env)
+  meth_abc <- get_abc_method()
+
+  if (meth_abc %in% c("loclinear", "rejection")) {
+    cat("Vectorized fast ABC (method = ", meth_abc, ") for ", length(summary_stat_combos),
+        " combinations\n", sep = "")
+    vec <- fast_abc_estimate_multi(
+      obs_stats_subset,
+      prior_params_valid,
+      sim_stats_valid,
+      summary_stat_combos,
+      tol = tol,
+      estimator = meth_abc,
+      hcorr = TRUE
+    )
+    results <- as.list(vec)
+    if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
+      assign("res_abc", list(method = meth_abc, fast_vectorized = TRUE, estimates = vec),
+             envir = last_abc_env)
+      assign("last_error", NULL, envir = last_abc_env)
+    }
+  } else {
+    for (i in seq_along(summary_stat_combos)) {
+      combo <- summary_stat_combos[[i]]
+      combo_name <- paste(combo, collapse = ",")
+
+      qst_estimate <- tryCatch({
+        combo_sumstat <- sim_stats_valid[, combo, drop = FALSE]
+        combo_target <- obs_stats_subset[combo]
+
+        res_abc <- run_abc_qst(
+          target = combo_target,
+          param = prior_params_valid,
+          sumstat = combo_sumstat,
+          tol = tol,
+          transf = rep("none", ncol(prior_params_valid))
+        )
+        if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
+          assign("res_abc", res_abc, envir = last_abc_env)
+          assign("last_error", NULL, envir = last_abc_env)
+        }
+        result <- qst_mean_from_abc(res_abc)
+        rm(res_abc, combo_sumstat, combo_target)
+        gc(verbose = FALSE, reset = TRUE)
+        result
+
+      }, error = function(e) {
+        if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
+          assign("res_abc", NULL, envir = last_abc_env)
+          assign("last_error", conditionMessage(e), envir = last_abc_env)
+        }
+        warning(paste("ABC failed for", combo_name, ":", e$message))
+        gc(verbose = FALSE, reset = TRUE)
+        NA
+      })
+
+      results[[combo_name]] <- qst_estimate
+
+      # Progress indicator
+      if (i %% 10 == 0 || i == length(summary_stat_combos)) {
+        cat("  ABC combo", i, "/", length(summary_stat_combos), "\n")
       }
-      result <- qst_mean_from_abc(res_abc)
-      rm(res_abc, combo_sumstat, combo_target)
-      gc(verbose = FALSE, reset = TRUE)
-      result
-      
-    }, error = function(e) {
-      if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
-        assign("res_abc", NULL, envir = last_abc_env)
-        assign("last_error", conditionMessage(e), envir = last_abc_env)
-      }
-      warning(paste("ABC failed for", combo_name, ":", e$message))
-      gc(verbose = FALSE, reset = TRUE)
-      NA
-    })
-    
-    results[[combo_name]] <- qst_estimate
-    
-    # Progress indicator
-    if (i %% 10 == 0 || i == length(summary_stat_combos)) {
-      cat("  ABC combo", i, "/", length(summary_stat_combos), "\n")
     }
   }
-  
+
   rm(sim_stats_valid, prior_params_valid, obs_stats_subset)
   gc(verbose = FALSE, full = TRUE, reset = TRUE)
   

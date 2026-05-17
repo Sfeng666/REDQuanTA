@@ -1,0 +1,4 @@
+rank,model,TPR_VE_0.01,TPR_VE_0.1,TPR_VE_1,TPR_VE_10,TPR_VE_100,mean_TPR
+1,"among_pop_sd	ext_sd	QST",0.42,0.55,0.61,0.48,0.35,0.482
+2,"QST,ratioVbetweenVtotal",0.40,0.52,0.58,0.45,0.33,0.456
+3,"among_pop_sd,QST,ratioVext",0.38,0.50,0.55,0.42,0.30,0.430

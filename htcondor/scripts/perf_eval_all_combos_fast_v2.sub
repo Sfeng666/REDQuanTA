@@ -1,0 +1,30 @@
+# HTCondor submit file for fast all-combo perf-eval cells (v2 vectorized; REDQuanTA).
+
+universe = vanilla
+executable = $(dir_scripts)/run_perf_eval_all_combos_fast_cell_v2.sh
+arguments = $(mode) $(worker_args)
+environment = "$(environment)"
+
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(dir_code)/perf_eval_all_combos_fast_cell_v2.R, $(dir_scripts)/run_perf_eval_all_combos_fast_cell_v2.sh, $(combos_file), $(r_env_tarball)$(extra_input_files)
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_output_files = $(output_file)
+
+initialdir = $(outdir)
+log = $(job).log
+output = $(job).out
+error = $(job).err
+
+request_cpus = 1
+request_memory = $(request_memory)
+request_disk = 4GB
+
++JobDurationCategory = "Long"
++LongJob = false
+periodic_release = (NumHolds < 20) && (HoldReasonCode == 13 || HoldReasonCode == 21)
+
+want_campus_pools = false
+want_ospool = false
+requirements = (Target.OpSysMajorVer >= 7) && regexp(".*[.]chtc[.]wisc[.]edu$", TARGET.Machine) && !regexp("^backfill", TARGET.Name)
+
+queue

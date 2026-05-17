@@ -6,7 +6,7 @@
 #   Rscript generate_combined_ranking.R [results_dir]
 #
 # Arguments:
-#   results_dir: Directory containing chromosome subdirectories (default: results/perf_eval)
+#   results_dir: Directory containing chromosome subdirectories (default: code/chtc/results/perf_eval)
 #                Each subdirectory should contain tpr_fpr_matrix_*.csv files
 
 # Parse command-line arguments
@@ -22,10 +22,10 @@ get_script_dir <- function() {
   return(getwd())
 }
 script_dir <- get_script_dir()
-project_root <- normalizePath(file.path(script_dir, ".."))
+# workflow/scripts -> REDQuanTA repository root
+project_root <- normalizePath(file.path(script_dir, "..", ".."))
 
-# Default results directory (relative to project root)
-default_results_dir <- file.path(project_root, "code", "chtc", "results", "perf_eval")
+default_results_dir <- file.path(project_root, "results", "perf_eval")
 results_dir <- if (length(args) >= 1) normalizePath(args[1]) else default_results_dir
 
 cat("Results directory:", results_dir, "\n")
@@ -34,7 +34,9 @@ cat("Results directory:", results_dir, "\n")
 chr_dirs <- list.dirs(results_dir, recursive = FALSE, full.names = TRUE)
 # Keep only directories that contain tpr_fpr CSV files (skip plots/, etc.)
 chr_dirs <- chr_dirs[sapply(chr_dirs, function(d) {
-  length(list.files(d, pattern = "^tpr_fpr_matrix_.*\\.csv$")) > 0
+  f <- list.files(d, pattern = "^tpr_fpr_matrix_.*\\.csv$")
+  f <- f[!grepl("model_ranking|heatmap", f)]
+  length(f) > 0
 })]
 chr_types <- basename(chr_dirs)
 
@@ -45,10 +47,14 @@ cat("Found chromosome types:", paste(chr_types, collapse = ", "), "\n")
 
 # Function to extract TPR by V_E ratio from individual CSV files
 extract_tpr_by_ratio <- function(chr_dir, chr_type) {
-  # Get list of tpr_fpr CSV files (exclude model_ranking and heatmap files)
-  pattern <- paste0("tpr_fpr_matrix_", chr_type, "_.*\\.csv$")
-  files <- list.files(chr_dir, pattern = pattern, full.names = TRUE)
-  files <- files[!grepl("model_ranking|heatmap", files)]
+  # Prefer per-combo fast-eval outputs (…_combo_NNNN.csv); else all per-model matrices (less-corr layout).
+  pat_combo <- paste0("^tpr_fpr_matrix_", chr_type, "_combo_.*\\.csv$")
+  files <- list.files(chr_dir, pattern = pat_combo, full.names = TRUE)
+  if (length(files) == 0) {
+    pattern <- paste0("tpr_fpr_matrix_", chr_type, "_.*\\.csv$")
+    files <- list.files(chr_dir, pattern = pattern, full.names = TRUE)
+    files <- files[!grepl("model_ranking|heatmap", files)]
+  }
 
   all_results <- list()
 
@@ -59,6 +65,9 @@ extract_tpr_by_ratio <- function(chr_dir, chr_type) {
       # Extract model name from filename
       model_name <- sub(paste0("tpr_fpr_matrix_", chr_type, "_"), "", basename(f))
       model_name <- sub("\\.csv$", "", model_name)
+      if ("model" %in% names(df)) {
+        model_name <- as.character(df$model[1])
+      }
 
       # Get TPR rows (skip threshold and FPR rows)
       tpr_rows <- df[grepl("^QST_", df$type), ]
@@ -103,8 +112,12 @@ tpr_cols <- grep("^TPR_r", names(df_combined), value = TRUE)
 
 # Get V_E ratio values from the column names in the source CSVs
 # Read one file to discover the actual ratio values
-sample_file <- list.files(chr_dirs[1], pattern = "^tpr_fpr_matrix_.*\\.csv$", full.names = TRUE)
-sample_file <- sample_file[!grepl("model_ranking|heatmap", sample_file)][1]
+sample_files <- list.files(chr_dirs[1], pattern = "^tpr_fpr_matrix_.*_combo_.*\\.csv$", full.names = TRUE)
+if (length(sample_files) == 0) {
+  sample_files <- list.files(chr_dirs[1], pattern = "^tpr_fpr_matrix_.*\\.csv$", full.names = TRUE)
+  sample_files <- sample_files[!grepl("model_ranking|heatmap", sample_files)]
+}
+sample_file <- sample_files[1]
 sample_df <- read.csv(sample_file, stringsAsFactors = FALSE)
 ratio_cols <- grep("^VEratio_", names(sample_df), value = TRUE)
 ve_ratios <- as.numeric(sub("^VEratio_", "", ratio_cols))
@@ -113,13 +126,13 @@ cat("Calculating mean TPR across", length(chr_types), "chromosome types...\n")
 
 # Aggregate by model (mean across chromosomes)
 df_avg <- aggregate(
-  df_combined[, tpr_cols, drop = FALSE],
+  df_combined[, tpr_cols],
   by = list(model = df_combined$model),
   FUN = mean, na.rm = TRUE
 )
 
 # Overall mean TPR across all ratios
-df_avg$mean_TPR <- rowMeans(df_avg[, tpr_cols, drop = FALSE], na.rm = TRUE)
+df_avg$mean_TPR <- rowMeans(df_avg[, tpr_cols], na.rm = TRUE)
 
 # Sort and rank
 df_avg <- df_avg[order(-df_avg$mean_TPR), ]
@@ -140,7 +153,7 @@ df_avg <- df_avg[, c("rank", "model", tpr_ve_cols, "mean_TPR")]
 for (col in c(tpr_ve_cols, "mean_TPR")) df_avg[[col]] <- round(df_avg[[col]], 4)
 
 # Save
-output_file <- if (length(args) >= 2) args[2] else file.path(results_dir, "combined_model_ranking.csv")
+output_file <- file.path(results_dir, "combined_model_ranking.csv")
 write.csv(df_avg, output_file, row.names = FALSE)
 cat("\nCombined model ranking saved to:", output_file, "\n")
 

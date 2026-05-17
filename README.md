@@ -119,6 +119,57 @@ evaluation for each structure and produces power comparison plots showing how
 detection power varies with sample size. By default, the comparison uses the
 first summary stats combo; set `comparison_stats` to override.
 
+After HTCondor (or Snakemake) finishes, **aggregate** then **plot** any results tree
+with `n2_i{ind}_r{rep}/` subdirectories and batch `.RData` under `autosomes/` and
+`chrX/`:
+
+```bash
+# 1) Build tpr_fpr_matrix_*.csv from batch RData (required for HTCondor Module 2 DAGs)
+bash workflow/scripts/run_aggregate_sample_structure_perf_eval.sh \
+  htcondor/results/validation_sample_struct_QST_ratioVbetweenVtotal \
+  0.8 0.1,1.0,10.0 0.95
+
+# 2) Power curves and tables
+bash workflow/scripts/run_plot_sample_structure_comparison.sh \
+  htcondor/results/validation_sample_struct_QST_ratioVbetweenVtotal \
+  "QST,ratioVbetweenVtotal"
+```
+
+Outputs: `<results_base_dir>/*/autosomes|chrX/tpr_fpr_matrix_*.csv`, then
+`<results_base_dir>/plots/` (PDFs and TPR tables).
+
+Example fixtures (~200 KB): [data/example/postprocessing/](data/example/postprocessing/README.md).
+
+### Multi-Combo Performance Evaluation (Optional, Local)
+
+For HTCondor runs that score many summary-stat combinations per job (e.g. fast
+all-combo perf-eval), aggregate locally after jobs complete:
+
+```bash
+bash workflow/scripts/run_aggregate_perf_eval_multicombo_fast.sh \
+  path/to/perf_eval_results
+```
+
+Requires `combinations*.txt` in the results root and `autosomes/` + `chrX/`
+with `neutral_ratio_*` / `adaptive_q*_*` batch `.RData` files. Writes per-combo
+`tpr_fpr_matrix_*_combo_XXXX.csv` and `combined_model_ranking.csv`.
+
+**Publication ranking** (manuscript stat names, two-column table at V_E/V_G = 1.0):
+
+```bash
+bash workflow/scripts/run_perf_eval_publication_ranking.sh \
+  path/to/perf_eval_results
+# or after aggregation only:
+#   SKIP_COMBINED=1 bash workflow/scripts/run_perf_eval_publication_ranking.sh ...
+```
+
+Writes `combined_model_ranking_publication.csv`, `Table_model_ranking.txt`, and
+`Table_model_ranking_legend.txt`. Set `RUN_PUBLICATION_RANKING=1` on the
+multi-combo aggregate script to run this step automatically.
+
+Examples: [data/example/postprocessing/](data/example/postprocessing/README.md)
+(`perf_eval_multicombo/` schemas, `perf_eval_ranking/` publication table).
+
 ## Directory Structure
 
 ```
@@ -134,7 +185,10 @@ REDQuanTA/
 ├── workflow/                    # Snakemake workflow
 │   ├── Snakefile
 │   ├── rules/
-│   └── scripts/
+│   └── scripts/                 # R helpers + optional local post-processing
+│       ├── run_aggregate_sample_structure_perf_eval.sh
+│       ├── run_plot_sample_structure_comparison.sh
+│       └── run_aggregate_perf_eval_multicombo_fast.sh
 ├── htcondor/                    # HTCondor execution
 │   ├── scripts/
 │   └── env/

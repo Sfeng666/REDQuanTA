@@ -9,7 +9,7 @@ arguments = batch_evaluate $(eval_params) $(ve_ratio) $(output_file) $(num_sim) 
 environment = "$(environment)"
 
 # Transfer R script, environment, and optional combos file
-transfer_input_files = $(dir_code)/qst_abc_sim.R, $(r_env_tarball)$(extra_input_files)
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(r_env_tarball)$(extra_input_files)
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 transfer_output_files = $(output_file)

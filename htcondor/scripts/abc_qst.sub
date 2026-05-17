@@ -5,7 +5,7 @@ executable = $(dir_scripts)/run_abc_qst.sh
 arguments = $(mode) $(input) $(ext_sd_or_file) $(output_file) $(num_sim) $(summary_stats)
 
 # Transfer R script and environment from home directory (avoids osdf issues)
-transfer_input_files = $(dir_code)/qst_abc_sim.R, $(r_env_tarball)$(extra_input_comma)$(extra_input_files)
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(r_env_tarball)$(extra_input_comma)$(extra_input_files)
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 transfer_output_files = $(output_file)

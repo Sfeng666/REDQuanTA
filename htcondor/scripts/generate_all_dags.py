@@ -54,6 +54,8 @@ def main():
                         help="Enable sanity check mode")
     parser.add_argument("--base-priority", type=int, default=1000,
                         help="Base priority for first trait (default: 1000)")
+    parser.add_argument("--trait-values", type=str, default=None,
+                        help="Path to trait_values.csv (default: data/example/trait_values.csv)")
 
     args = parser.parse_args()
 
@@ -64,7 +66,7 @@ def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     
     # Read trait IDs
-    trait_file = DATA_DIR / "trait_values.csv"
+    trait_file = Path(args.trait_values).resolve() if args.trait_values else DATA_DIR / "trait_values.csv"
     traits = []
     with open(trait_file) as f:
         reader = csv.DictReader(f)

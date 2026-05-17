@@ -216,6 +216,116 @@ condor_submit_dag results/perf_eval/perf_eval_autosomes.dag
 condor_submit_dag results/perf_eval/perf_eval_chrX.dag
 ```
 
+### Optional Post-Processing (Local)
+
+These steps are **not** run automatically by HTCondor DAGs. Run them on the
+submit node or your workstation after the corresponding jobs finish.
+
+#### Sample-structure aggregation + power plots
+
+HTCondor Module 2 DAGs write batch `.RData` under `neutral_ratio_{i}/` and
+`adaptive_q{qst}_r{i}/`. The DAG POST script calls `aggregate_perf_eval.R`, which
+must read those **directories** (not legacy flat log basenames). If matrices are
+all `NA`, re-run aggregation locally with the script below.
+
+**Step A — aggregate** (same `adaptive_qst` / `ve_ratios` as in your DAG):
+
+```bash
+bash workflow/scripts/run_aggregate_sample_structure_perf_eval.sh \
+  /path/to/sample_struct_results \
+  0.8 0.1,1.0,10.0 0.95
+```
+
+**Step B — plot** (requires numeric `tpr_fpr_matrix_*.csv` from step A):
+
+```bash
+bash workflow/scripts/run_plot_sample_structure_comparison.sh \
+  /path/to/sample_struct_results \
+  "QST,ratioVbetweenVtotal" \
+  /path/to/sample_struct_results/plots
+```
+
+Example (CHTC validation tree):
+
+```bash
+bash workflow/scripts/run_aggregate_sample_structure_perf_eval.sh \
+  htcondor/results/validation_sample_struct_QST_ratioVbetweenVtotal
+bash workflow/scripts/run_plot_sample_structure_comparison.sh \
+  htcondor/results/validation_sample_struct_QST_ratioVbetweenVtotal
+```
+
+**Outputs**
+
+- Per structure/chromosome: `tpr_fpr_matrix_{autosomes,chrX}.csv`, `*_heatmap.pdf`
+- Plots dir: `power_comparison_combined_*.pdf`, `power_summary_table_*.txt`
+
+**Examples (checked in, ~200 KB total):** [data/example/postprocessing/README.md](../data/example/postprocessing/README.md)
+
+| Path | Role |
+|------|------|
+| [sample_struct_aggregation/input/](data/example/postprocessing/sample_struct_aggregation/input/) | Mini `n2_i4_r3` batch `.RData` tree |
+| [sample_struct_aggregation/output/](data/example/postprocessing/sample_struct_aggregation/output/) | Golden `tpr_fpr_matrix_*.csv` |
+| [sample_struct_plots/input/](data/example/postprocessing/sample_struct_plots/input/) | Two structures × 2 chr matrices |
+| [sample_struct_plots/output/](data/example/postprocessing/sample_struct_plots/output/) | Golden PDFs + TPR tables |
+
+The R script `workflow/scripts/plot_sample_structure_comparison.R` auto-discovers
+`n2_i*_r*` subdirectories.
+
+#### Fast multi-combo perf-eval aggregation
+
+Use when each HTCondor job wrote **many** summary-stat combinations into batch
+`.RData` files (e.g. `prepare_perf_eval_all_combos_fast_dag.py` with a
+`combinations*.txt` file). This is much faster than calling
+`aggregate_perf_eval.R` once per combo.
+
+```bash
+bash workflow/scripts/run_aggregate_perf_eval_multicombo_fast.sh \
+  /path/to/perf_eval_root \
+  /path/to/perf_eval_root/combinations_all_nonempty_11stats.txt
+```
+
+**Inputs:** `autosomes/` and `chrX/` with `neutral_ratio_*` and `adaptive_q*_*`
+subdirectories containing `neutral_batch_*.RData` / `adaptive_batch_*.RData`.
+
+**Outputs:**
+
+- Per combo: `tpr_fpr_matrix_{chr}_combo_XXXX.csv` under each chromosome dir
+- `combined_model_ranking.csv` at the results root (via `generate_combined_ranking.R`)
+
+#### Publication model ranking
+
+After per-combo matrices exist (and optionally `combined_model_ranking.csv`):
+
+```bash
+bash workflow/scripts/run_perf_eval_publication_ranking.sh /path/to/perf_eval_root
+# optional second argument: V_E/V_G for Table_model_ranking.txt (default 1.0)
+```
+
+Or set `RUN_PUBLICATION_RANKING=1` when calling
+`run_aggregate_perf_eval_multicombo_fast.sh` to chain aggregation and publication
+formatting. Use `SKIP_COMBINED=1` if `combined_model_ranking.csv` already exists.
+
+**Outputs:**
+
+- `combined_model_ranking_publication.csv` — full ranking with publication stat labels
+- `Table_model_ranking.txt` — tab-delimited two-column table (TPR at one V_E/V_G)
+- `Table_model_ranking_legend.txt` — caption / abbreviation key
+
+R scripts: `generate_combined_ranking.R` (reads `model` column from per-combo CSVs),
+`format_model_ranking.R` (rename stats, filter skew/kurtosis).
+
+**Example (5 rows, ~2 KB):** [data/example/postprocessing/perf_eval_ranking/](../data/example/postprocessing/perf_eval_ranking/)
+
+**Environment overrides:** `ADAPTIVE_QST`, `VE_RATIOS`, `THRESHOLD`, `RSCRIPT`
+(see script header). Defaults match the standard 11-level adaptive Q<sub>ST</sub>
+grid and five V<sub>E</sub>/V<sub>G</sub> ratios used in full perf-eval DAGs.
+
+For single-combo Module 2 runs, the DAG POST script still uses
+`aggregate_perf_eval.R`; use the fast script only when many combos were scored
+per batch job.
+
+**Example output formats (synthetic, ~9 KB):** [data/example/postprocessing/perf_eval_multicombo/](../data/example/postprocessing/perf_eval_multicombo/)
+
 ### HTCondor Parameters
 
 | Parameter | Default | Description |
@@ -353,7 +463,7 @@ cat results/dags/*.err
 ### ABC Estimation Parameters
 
 - **Simulations**: 100,000 per estimation
-- **Method**: Local linear regression (`method = "loclinear"`) via `abc::abc` by default; override with `QST_ABC_METHOD` (`neuralnet`, `rejection`, `ridge`, etc.)
+- **Method**: Local linear (`loclinear`, default) or `rejection` use the vectorized estimator in `abc_fast_estimators.R` (numerically equivalent to `abc::abc` on a fixed pool). `neuralnet` and `ridge` still use **`abc::abc`**. Override with `QST_ABC_METHOD`.
 - **Tolerance**: Dynamically adjusted for sufficient accepted samples
 - **Summary statistics**: Configurable; default: QST, ratioVbetweenVtotal
 

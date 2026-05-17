@@ -169,7 +169,7 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
         f.write(f"JOB {job_trait} {SCRIPT_DIR}/abc_qst.sub\n")
         f.write(f'VARS {job_trait} mode="trait" ')
         f.write(f'input="{obs_stats_file.name}" ')
-        f.write(f'ratioVext_or_file="ignored" ')
+        f.write(f'ext_sd_or_file="ignored" ')
         f.write(f'output_file="{trait_qst_file}" ')
         f.write(f'num_sim="{params["num_sim"]}" ')
         f.write(f'summary_stats="{params["summary_stats"]}" ')

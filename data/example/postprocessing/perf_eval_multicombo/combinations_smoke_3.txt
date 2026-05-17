@@ -1,0 +1,3 @@
+among_pop_sd	ext_sd	QST
+QST	ratioVbetweenVtotal
+among_pop_sd	QST	ratioVext

@@ -1,0 +1,4 @@
+"type","VEratio_0.01","VEratio_0.1","VEratio_1","VEratio_10","VEratio_100","model","model_id"
+"threshold",0.12,0.45,0.62,0.71,0.88,"among_pop_sd	ext_sd	QST","combo_0001"
+"FPR",0.05,0.05,0.05,0.05,0.05,"among_pop_sd	ext_sd	QST","combo_0001"
+"QST_0.5",0.42,0.55,0.61,0.48,0.35,"among_pop_sd	ext_sd	QST","combo_0001"

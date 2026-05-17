@@ -56,12 +56,13 @@ os <- obs_stats[pool$required_stats]
 
 t_abc_only <- system.time({
   abc_vec <- vapply(combos, function(cb) {
-    res <- run_abc_qst(
+    res <- abc::abc(
       target = os[cb],
       param = P,
       sumstat = S[, cb, drop = FALSE],
       tol = tol,
-      transf = rep("none", 3L)
+      transf = rep("none", 3L),
+      method = "loclinear"
     )
     qst_mean_from_abc(res)
   }, numeric(1))

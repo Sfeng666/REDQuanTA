@@ -1,0 +1,6 @@
+Summary statistics	True Positive Rate (TPR)
+Q_ST, V_GB/(V_G + V_E), V_GW/(V_G + V_E), V_E/(V_G + V_E)	0.4085
+Q_ST, V_GB/V_E, V_GW/(V_G + V_E)	0.4071
+SD_GW, Q_ST, V_GB/(V_G + V_E), V_GW/(V_G + V_E), V_E/(V_G + V_E)	0.4001
+SD_GB, SD_GW, Q_ST, V_GB/V_GW, V_E/(V_G + V_E)	0.3997
+SD_E, V_GW/V_E, V_GW/(V_G + V_E)	0.4056
