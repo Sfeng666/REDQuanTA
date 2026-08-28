@@ -246,7 +246,7 @@ BASIC_STATS <- c("among_pop_sd", "within_pop_sd", "ext_sd", "both_var_negative")
 
 #' True when both ANOVA genetic variance components are non-positive (QST not estimable).
 #' Uses only the explicit both_var_negative flag from the floor policy.
-#' (Removed soft-clip-era among_pop_sd == within_pop_sd fallback; incorrect under F3.)
+#' (Do not treat among_pop_sd == within_pop_sd as a proxy; that is wrong under the ridge floor.)
 is_both_neg <- function(obs_stats) {
   if ("both_var_negative" %in% names(obs_stats)) {
     v <- suppressWarnings(as.numeric(obs_stats["both_var_negative"]))
@@ -334,19 +334,18 @@ var_additive <- 1
 .DF_within <- num_pop * (num_ind - 1)
 .DF_residual <- num_pop * num_ind * (num_rep - 1)
 
-# Floor policy for variance components (sandbox investigation):
-#   baseline — soft-clip 1e-8*MS_total (status quo)
-#   F1       — residual-fraction interior floor
-#   F3       — ridge/softplus sqrt(max(raw,0)^2 + lambda^2)
-#   F4       — either-component floor -> both_var_negative (NA via bothnegna)
-# module1_F3 default: F3 (override still allowed via FLOOR_POLICY)
-.FLOOR_POLICY <- Sys.getenv("FLOOR_POLICY", "F3")
+# Variance floor on among- and within-population ANOVA components.
+# ridge_floor (default): sqrt(max(raw, 0)^2 + lambda^2), lambda = max(alpha * ANOVA noise,
+#   a tiny fraction of MS_total). Components stay strictly positive. FLOOR_ALPHA default 0.1.
+# baseline: clip non-positive components to that tiny MS_total fraction.
+.FLOOR_POLICY <- Sys.getenv("FLOOR_POLICY", "ridge_floor")
 .FLOOR_ALPHA <- as.numeric(Sys.getenv("FLOOR_ALPHA", "0.1"))
 cat("  Floor policy:", .FLOOR_POLICY, " alpha=", .FLOOR_ALPHA, "\n")
 
 .apply_floor_components <- function(var_among_raw, var_within_raw, MS_total,
                                     noise_among, noise_within,
                                     policy = .FLOOR_POLICY, alpha = .FLOOR_ALPHA) {
+  if (identical(policy, "F3")) policy <- "ridge_floor"
   tf <- if (length(MS_total) == 1L) {
     if (MS_total > 0) 1e-8 * MS_total else 1e-8
   } else {
@@ -360,21 +359,22 @@ cat("  Floor policy:", .FLOOR_POLICY, " alpha=", .FLOOR_ALPHA, "\n")
     var_among <- ifelse(var_among_raw > 0, var_among_raw, lam_a)
     var_within <- ifelse(var_within_raw > 0, var_within_raw, lam_w)
     flag_neg <- both_neg
-  } else if (policy == "F3") {
+  } else if (policy == "ridge_floor") {
     lam_a <- pmax(alpha * noise_among, tf)
     lam_w <- pmax(alpha * noise_within, tf)
     var_among <- sqrt(pmax(var_among_raw, 0)^2 + lam_a^2)
     var_within <- sqrt(pmax(var_within_raw, 0)^2 + lam_w^2)
-    flag_neg <- rep(FALSE, length(var_among_raw))  # always interior
+    flag_neg <- rep(FALSE, length(var_among_raw))
   } else if (policy == "F4") {
     var_among <- ifelse(var_among_raw > 0, var_among_raw, tf)
     var_within <- ifelse(var_within_raw > 0, var_within_raw, tf)
     flag_neg <- either_neg
-  } else {
-    # baseline
+  } else if (policy == "baseline") {
     var_among <- ifelse(var_among_raw > 0, var_among_raw, tf)
     var_within <- ifelse(var_within_raw > 0, var_within_raw, tf)
     flag_neg <- both_neg
+  } else {
+    stop("Unknown FLOOR_POLICY='", policy, "'. Use ridge_floor (default) or baseline.")
   }
   list(var_among = var_among, var_within = var_within, both_var_negative = flag_neg)
 }

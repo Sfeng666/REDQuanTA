@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- F3 ridge variance floor (`FLOOR_POLICY=F3`, `FLOOR_ALPHA=0.1`) as the Detection and Design Module default, matching the manuscript.
+- Ridge variance floor (`FLOOR_POLICY=ridge_floor`, `FLOOR_ALPHA=0.1`) as the Detection and Design Module default, matching the manuscript.
 - Detection Module fused HTCondor DAG (`prepare_detection_dag.py`, `submit_detection.sh`) and Design Module DAG (`prepare_design_dag.py`, `submit_design.sh`).
 - Local smoke configs: `config/config_detect_smoke.yaml`, `config/config_evaluate_smoke.yaml`, `data/example/trait_values_smoke.csv`.
 - Trait-type comparison scripts that take `--results-root` rather than a fixed collection list: `compare_adaptive_fst_vs_qst.R`, `plot_comparison_across_trait_types.R`.

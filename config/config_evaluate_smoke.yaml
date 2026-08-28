@@ -13,7 +13,7 @@ num_neutral: 20
 num_sim: 2000
 batch_size: 20
 threshold_percentile: 0.95
-floor_policy: "F3"
+floor_policy: "ridge_floor"
 floor_alpha: 0.1
 summary_stats_combos:
   - "QST,ratioVbetweenVtotal"

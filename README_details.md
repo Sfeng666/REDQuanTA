@@ -49,6 +49,8 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 
 ## Configuration Files
 
+Default ABC method: loclinear. Default summary-stat combination: `QST,ratioVbetweenVtotal`. Default variance floor: ridge floor (α = 0.1), which keeps among- and within-population components strictly positive.
+
 ### config/config_detect.yaml (Detection Module)
 
 | Parameter | Default | Description |
@@ -63,8 +65,8 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 | `batch_size` | 50 | FST values per batch job |
 | `threshold_percentile` | 0.95 | Threshold for adaptive detection |
 | `summary_stats` | `QST,ratioVbetweenVtotal` | Summary statistics for ABC |
-| `floor_policy` | `F3` | Variance floor (`F3` ridge or `baseline`) |
-| `floor_alpha` | `0.1` | F3 ridge alpha |
+| `floor_policy` | `ridge_floor` | Variance floor: `ridge_floor` (default) or `baseline` |
+| `floor_alpha` | `0.1` | Scale for the ridge floor (λ uses α times ANOVA noise) |
 | `chromosomes` | `[autosomes, chrX]` | Chromosome types to analyze |
 | `output_dir` | `results/detect` | Output directory |
 
@@ -78,7 +80,8 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 | `num_neutral` | 100 | Neutral simulations (reduced for local) |
 | `num_sim` | 100000 | ABC simulations per estimation |
 | `batch_size` | 50 | Values per batch |
-| `floor_policy` | `F3` | Variance floor (`F3` ridge or `baseline`) |
+| `floor_policy` | `ridge_floor` | Variance floor: `ridge_floor` (default) or `baseline` |
+| `floor_alpha` | `0.1` | Scale for the ridge floor (λ uses α times ANOVA noise) |
 | `summary_stats_combos` | `[QST,ratioVbetweenVtotal, ...]` | Summary stat combinations to evaluate |
 
 ### config/config_evaluate_full.yaml (Design Module - HTCondor)
@@ -510,6 +513,10 @@ Using Method of Moments (MoM):
 - V<sub>E</sub>: Residual (environmental) variance
 
 Q<sub>ST</sub> = V<sub>among</sub> / (V<sub>among</sub> + 2 × V<sub>within</sub>)
+
+### Variance floor
+
+ANOVA among- and within-population components can come out non-positive. The default `ridge_floor` replaces each component with sqrt(max(raw, 0)<sup>2</sup> + λ<sup>2</sup>), where λ is at least `floor_alpha` (0.1) times the ANOVA sampling noise, and at least a tiny fraction of MS<sub>total</sub>. Detection and Design use the same floor. `baseline` clips non-positive values to that tiny MS<sub>total</sub> fraction instead.
 
 ### Memory Optimization
 

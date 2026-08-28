@@ -19,7 +19,7 @@ THRESHOLD_PERCENTILE = config.get("threshold_percentile", 0.95)
 SUMMARY_STATS = config.get("summary_stats", "QST,ratioVbetweenVtotal")
 CHROMOSOMES = config.get("chromosomes", ["autosomes", "chrX"])
 OUTPUT_DIR = config.get("output_dir", "results/detect")
-FLOOR_POLICY = config.get("floor_policy", "F3")
+FLOOR_POLICY = config.get("floor_policy", "ridge_floor")
 FLOOR_ALPHA = config.get("floor_alpha", 0.1)
 
 # Calculate number of batches

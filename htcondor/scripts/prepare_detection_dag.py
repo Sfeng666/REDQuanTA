@@ -7,7 +7,7 @@ Usage:
         --sample-structure data/example/sample_structure.csv \\
         --results-dir results/detect_chtc \\
         --output-dag results/dags/detect.dag \\
-        --job-mode fused --environment 'FLOOR_POLICY=F3 FLOOR_ALPHA=0.1'
+        --job-mode fused --environment 'FLOOR_POLICY=ridge_floor FLOOR_ALPHA=0.1'
 """
 
 from __future__ import annotations
@@ -498,8 +498,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--environment",
-        default="FLOOR_POLICY=F3 FLOOR_ALPHA=0.1",
-        help="HTCondor job environment (default: F3 ridge floor)",
+        default="FLOOR_POLICY=ridge_floor FLOOR_ALPHA=0.1",
+        help="HTCondor job environment (default: ridge floor, alpha 0.1)",
     )
     args = parser.parse_args()
 

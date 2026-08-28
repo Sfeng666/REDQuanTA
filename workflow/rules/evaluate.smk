@@ -23,7 +23,7 @@ SUMMARY_STATS_COMBOS = config.get("summary_stats_combos", ["QST,ratioVbetweenVto
 STATS_MAP = {s.replace(",", "_"): s for s in SUMMARY_STATS_COMBOS}
 CHROMOSOMES = config.get("chromosomes", ["autosomes", "chrX"])
 OUTPUT_DIR = config.get("output_dir", "results/evaluate")
-FLOOR_POLICY = config.get("floor_policy", "F3")
+FLOOR_POLICY = config.get("floor_policy", "ridge_floor")
 FLOOR_ALPHA = config.get("floor_alpha", 0.1)
 
 # 1-based ratio index and QST filename stems expected by aggregate_perf_eval.R

@@ -125,7 +125,7 @@ SS_residual <- rowSums((Y - line_means_exp_samples)^2)
 
 SS_total <- rowSums((Y - overall_mean)^2)
 MS_total <- SS_total / max(num_pop * num_ind * num_rep - 1L, 1L)
-# module1_F3: F3 ridge floor (matches sandbox ABC FLOOR_POLICY=F3, alpha=0.1)
+# Ridge floor (alpha = 0.1), same formula as qst_abc_sim.R FLOOR_POLICY=ridge_floor.
 tf <- ifelse(MS_total > 0, 1e-8 * MS_total, 1e-8)
 alpha_floor <- 0.1
 

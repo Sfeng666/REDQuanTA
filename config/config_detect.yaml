@@ -26,8 +26,8 @@ batch_size: 50           # FST values per batch job
 threshold_percentile: 0.95
 summary_stats: "QST,ratioVbetweenVtotal"  # Default combo (manuscript)
 
-# Variance floor (F3 ridge; manuscript default)
-floor_policy: "F3"
+# Variance floor (ridge floor; manuscript default)
+floor_policy: "ridge_floor"
 floor_alpha: 0.1
 
 # Chromosome types to analyze

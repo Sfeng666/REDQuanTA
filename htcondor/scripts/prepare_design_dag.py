@@ -189,8 +189,10 @@ def main():
     parser.add_argument("--code-dir", help="Directory with qst_abc_sim.R (default: workflow/scripts)")
     parser.add_argument("--fst-input-dir", default=str(INPUT_DIR_DEFAULT), help="Directory with qst_neutral_*.txt")
     parser.add_argument("--r-env-tarball", default=str(R_ENV_DEFAULT.resolve()))
-    parser.add_argument("--floor-policy", default="F3", help="Variance floor policy (default: F3)")
-    parser.add_argument("--floor-alpha", default="0.1", help="F3 ridge alpha (default: 0.1)")
+    parser.add_argument("--floor-policy", default="ridge_floor",
+                        help="Variance floor (default: ridge_floor)")
+    parser.add_argument("--floor-alpha", default="0.1",
+                        help="Ridge-floor alpha (default: 0.1)")
     parser.add_argument(
         "--sub-name",
         default="perf_eval_fast.sub",

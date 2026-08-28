@@ -15,7 +15,7 @@
 #   CHR               autosomes|chrX|both (default: both)
 #   ADAPTIVE_QST      comma-separated QST levels (default: DAG generator 0.50..1.00)
 #   VE_RATIOS         comma-separated V_E/V_G (default: 0.01,0.1,1,10,100)
-#   FLOOR_POLICY      default: F3
+#   FLOOR_POLICY      default: ridge_floor
 #   FLOOR_ALPHA       default: 0.1
 #   JOB_PRIORITY      default: 1000
 #   DRY_RUN           1 = generate DAGs only
@@ -35,7 +35,7 @@ BATCH_SIZE="${BATCH_SIZE:-1000}"
 CHR="${CHR:-both}"
 ADAPTIVE_QST="${ADAPTIVE_QST:-}"
 VE_RATIOS="${VE_RATIOS:-}"
-FLOOR_POLICY="${FLOOR_POLICY:-F3}"
+FLOOR_POLICY="${FLOOR_POLICY:-ridge_floor}"
 FLOOR_ALPHA="${FLOOR_ALPHA:-0.1}"
 JOB_PRIORITY="${JOB_PRIORITY:-1000}"
 DRY_RUN="${DRY_RUN:-0}"

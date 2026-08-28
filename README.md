@@ -1,9 +1,15 @@
+<div align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/logo/REDQuanTEA_logo_dark.png">
-  <img alt="REDQuanTEA" src="docs/logo/REDQuanTEA_logo_light.png" height="80">
+  <img alt="REDQuanTEA" src="docs/logo/REDQuanTEA_logo_light.png" width="100%">
 </picture>
 
-**R**eplication-**E**nhanced **D**etection of **Quan**titative **T**raits **E**volving **A**daptively
+<h1>
+<font color="#C41E3A">RED</font>Quan<font color="#C41E3A">TEA</font>
+</h1>
+
+<p><b>R</b>eplication-<b>E</b>nhanced <b>D</b>etection of <b>Quan</b>titative <b>T</b>raits <b>E</b>volving <b>A</b>daptively</p>
+</div>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -11,15 +17,13 @@ A workflow for detecting adaptive quantitative trait divergence (Q<sub>ST</sub>)
 
 Q<sub>ST</sub>–F<sub>ST</sub> comparisons lose power when extrinsic (non-genetic) variance deflates Q<sub>ST</sub>. REDQuanTEA uses biological replication plus ABC to separate V<sub>E</sub> from genetic variance, then compares each trait to a trait-specific dynamic neutral Q<sub>ST</sub> threshold matched on sample structure, estimator, chromosome, and V<sub>E</sub>/V<sub>G</sub>.
 
-Default ABC method: loclinear. Default summary-stat combination: `QST,ratioVbetweenVtotal`. Default variance floor: F3 ridge (α = 0.1).
-
 ## Workflow overview
 
-![QST Workflow](data/reference/QST_workflow_both_modes_white_bg.png)
+![QST Workflow](data/reference/Figure%201_QST_workflow_both_modes.png)
 
 ### Detection Module
 
-1. Calculate variance components (method of moments) with the F3 ridge floor.
+1. Calculate variance components (method of moments) with the ridge floor.
 2. Estimate trait Q<sub>ST</sub> with loclinear ABC.
 3. Build a neutral Q<sub>ST</sub> distribution from empirical F<sub>ST</sub> values at the same V<sub>E</sub>/V<sub>G</sub>.
 4. Compare trait Q<sub>ST</sub> to the 95th percentile of that null.

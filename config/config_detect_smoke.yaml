@@ -9,7 +9,7 @@ num_sim: 2000
 batch_size: 20
 threshold_percentile: 0.95
 summary_stats: "QST,ratioVbetweenVtotal"
-floor_policy: "F3"
+floor_policy: "ridge_floor"
 floor_alpha: 0.1
 chromosomes:
   - "autosomes"

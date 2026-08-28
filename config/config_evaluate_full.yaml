@@ -35,8 +35,8 @@ num_sim: 100000          # ABC simulations per estimation
 batch_size: 1000         # Optimal batch size
 threshold_percentile: 0.95
 
-# Variance floor (F3 ridge; manuscript default)
-floor_policy: "F3"
+# Variance floor (ridge floor; manuscript default)
+floor_policy: "ridge_floor"
 floor_alpha: 0.1
 
 # Summary statistics combinations to evaluate

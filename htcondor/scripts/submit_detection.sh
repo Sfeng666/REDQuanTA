@@ -14,7 +14,7 @@
 #   NUM_SIM           default: 100000
 #   BATCH_SIZE        default: 1000
 #   SUMMARY_STATS     default: QST,ratioVbetweenVtotal
-#   FLOOR_POLICY      default: F3
+#   FLOOR_POLICY      default: ridge_floor
 #   FLOOR_ALPHA       default: 0.1
 #   JOB_PRIORITY      default: 1000
 #   DRY_RUN           1 = generate DAGs only
@@ -36,7 +36,7 @@ NUM_NEUTRAL="${NUM_NEUTRAL:-1000}"
 NUM_SIM="${NUM_SIM:-100000}"
 BATCH_SIZE="${BATCH_SIZE:-1000}"
 SUMMARY_STATS="${SUMMARY_STATS:-QST,ratioVbetweenVtotal}"
-FLOOR_POLICY="${FLOOR_POLICY:-F3}"
+FLOOR_POLICY="${FLOOR_POLICY:-ridge_floor}"
 FLOOR_ALPHA="${FLOOR_ALPHA:-0.1}"
 JOB_PRIORITY="${JOB_PRIORITY:-1000}"
 DRY_RUN="${DRY_RUN:-0}"
