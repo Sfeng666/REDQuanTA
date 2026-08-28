@@ -1,0 +1,18 @@
+# REDQuanTEA Detection Module: tiny local smoke run (2 traits)
+sample_structure: "data/example/sample_structure.csv"
+trait_values: "data/example/trait_values_smoke.csv"
+fst_input_mode: "direct"
+fst_autosomes: "data/example/qst_neutral_autosomes.txt"
+fst_chrX: "data/example/qst_neutral_chrX.txt"
+num_neutral: 20
+num_sim: 2000
+batch_size: 20
+threshold_percentile: 0.95
+summary_stats: "QST,ratioVbetweenVtotal"
+floor_policy: "F3"
+floor_alpha: 0.1
+chromosomes:
+  - "autosomes"
+  - "chrX"
+output_dir: "results/detect_smoke"
+threads_per_job: 1

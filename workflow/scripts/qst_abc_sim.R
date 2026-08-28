@@ -39,7 +39,7 @@ suppressPackageStartupMessages({
   }
   fast_src <- file.path(script_dir, "abc_fast_estimators.R")
   if (!file.exists(fast_src)) stop("Missing required file: ", fast_src)
-  sys.source(fast_src, envir = .GlobalEnv)
+  sys.source(fast_src, envir = environment())
 }
 
 # QST_ABC_METHOD: neuralnet | rejection | loclinear | ridge (rej -> rejection). Default loclinear.
@@ -60,19 +60,60 @@ get_abc_tol_numerator <- function() {
 run_abc_qst <- function(target, param, sumstat, tol, transf) {
   meth <- get_abc_method()
   if (meth %in% c("loclinear", "rejection")) {
-    q <- fast_abc_estimate_one(
+    res <- fast_abc_estimate_one(
       target, param, sumstat, tol,
       estimator = meth, hcorr = TRUE
     )
-    return(list(fast_scalar_qst = q))
-  }
-  if (meth == "neuralnet") {
-    return(abc(
-      target = target, param = param, sumstat = sumstat, tol = tol, transf = transf,
-      method = meth, sizenet = 10
+    return(list(
+      fast_scalar_qst = res$qst,
+      abc_among_pop_sd = res$abc_among_pop_sd,
+      abc_within_pop_sd = res$abc_within_pop_sd,
+      abc_ext_sd = res$abc_ext_sd,
+      qst_lo = res$qst_lo,
+      qst_hi = res$qst_hi,
+      ratioVext_lo = res$ratioVext_lo,
+      ratioVext_hi = res$ratioVext_hi
     ))
   }
-  abc(target = target, param = param, sumstat = sumstat, tol = tol, transf = transf, method = meth)
+  if (meth == "neuralnet") {
+    res <- abc(
+      target = target, param = param, sumstat = sumstat, tol = tol, transf = transf,
+      method = meth, sizenet = 10
+    )
+    return(abc_result_with_quantiles(res))
+  }
+  abc_result_with_quantiles(abc(
+    target = target, param = param, sumstat = sumstat, tol = tol, transf = transf, method = meth
+  ))
+}
+
+abc_result_with_quantiles <- function(res_abc) {
+  m <- res_abc$adj.values
+  if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) m <- res_abc$unadj.values
+  if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) {
+    return(list(
+      fast_scalar_qst = NA_real_,
+      abc_among_pop_sd = NA_real_,
+      abc_within_pop_sd = NA_real_,
+      abc_ext_sd = NA_real_,
+      qst_lo = NA_real_,
+      qst_hi = NA_real_,
+      ratioVext_lo = NA_real_,
+      ratioVext_hi = NA_real_
+    ))
+  }
+  q <- abc_posterior_quantiles_from_param(m)
+  sds <- abc_sd_means_from_param(m)
+  c(
+    list(fast_scalar_qst = qst_from_param_matrix(m)),
+    sds,
+    list(
+      qst_lo = q$qst_lo,
+      qst_hi = q$qst_hi,
+      ratioVext_lo = q$ratioVext_lo,
+      ratioVext_hi = q$ratioVext_hi
+    )
+  )
 }
 qst_mean_from_abc <- function(res_abc) {
   if (is.list(res_abc) && !is.null(res_abc$fast_scalar_qst)) {
@@ -84,6 +125,98 @@ qst_mean_from_abc <- function(res_abc) {
   if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) m <- res_abc$unadj.values
   if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) return(NA_real_)
   mean(m[, "sd_between_pop"]^2 / (m[, "sd_between_pop"]^2 + 2 * m[, "sd_within_pop"]^2))
+}
+
+abc_sd_means_from_abc <- function(res_abc) {
+  if (is.list(res_abc) && !is.null(res_abc$abc_among_pop_sd)) {
+    return(list(
+      abc_among_pop_sd = as.numeric(res_abc$abc_among_pop_sd),
+      abc_within_pop_sd = as.numeric(res_abc$abc_within_pop_sd),
+      abc_ext_sd = as.numeric(res_abc$abc_ext_sd)
+    ))
+  }
+  m <- res_abc$adj.values
+  if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) m <- res_abc$unadj.values
+  if (is.null(m) || !is.matrix(m) || nrow(m) < 1L) {
+    return(list(
+      abc_among_pop_sd = NA_real_,
+      abc_within_pop_sd = NA_real_,
+      abc_ext_sd = NA_real_
+    ))
+  }
+  abc_sd_means_from_param(m)
+}
+
+abc_na_result <- function() {
+  list(
+    qst = NA_real_,
+    qst_lo = NA_real_,
+    qst_hi = NA_real_,
+    abc_among_pop_sd = NA_real_,
+    abc_within_pop_sd = NA_real_,
+    abc_ext_sd = NA_real_,
+    abc_ratioVext = NA_real_,
+    abc_ratioVext_lo = NA_real_,
+    abc_ratioVext_hi = NA_real_
+  )
+}
+
+abc_sds_to_ratioVext <- function(among_sd, within_sd, ext_sd) {
+  if (!all(is.finite(c(among_sd, within_sd, ext_sd)))) return(NA_real_)
+  vg <- (among_sd^2 + 2 * within_sd^2) / 2
+  if (!is.finite(vg) || vg <= 0) return(NA_real_)
+  ext_sd^2 / vg
+}
+
+ratioVext_from_trait_qst_rdata <- function(path) {
+  if (!file.exists(path)) stop("Missing trait QST file: ", path)
+  env <- new.env()
+  load(path, envir = env)
+  if (!exists("result", envir = env)) stop("No result object in ", path)
+  r <- env$result
+  if (isTRUE(as.integer(r$both_var_negative) == 1L)) {
+    return(list(ratioVext = NA_real_, source = "abc_trait", valid = FALSE))
+  }
+  rv <- abc_sds_to_ratioVext(r$abc_among_pop_sd, r$abc_within_pop_sd, r$abc_ext_sd)
+  list(ratioVext = rv, source = "abc_trait", valid = is.finite(rv))
+}
+
+resolve_ratioVext_arg <- function(ratioVext_arg) {
+  if (file.exists(ratioVext_arg) && grepl("_trait_qst\\.RData$", ratioVext_arg, ignore.case = TRUE)) {
+    info <- ratioVext_from_trait_qst_rdata(ratioVext_arg)
+    cat("RatioVext from ABC trait_qst:", info$ratioVext, "(source:", info$source, ")\n")
+    return(info)
+  }
+  if (file.exists(ratioVext_arg)) {
+    load(ratioVext_arg)
+    rv <- as.numeric(obs_stats["ratioVext"])
+    cat("RatioVext from obs_stats file:", rv, "\n")
+    return(list(ratioVext = rv, source = "anova_obs_stats", valid = is.finite(rv)))
+  }
+  rv <- as.numeric(ratioVext_arg)
+  cat("RatioVext from argument:", rv, "\n")
+  list(ratioVext = rv, source = "numeric", valid = is.finite(rv))
+}
+
+abc_result_to_estimate <- function(res_abc) {
+  sds <- abc_sd_means_from_abc(res_abc)
+  qst <- qst_mean_from_abc(res_abc)
+  qlo <- if (!is.null(res_abc$qst_lo)) res_abc$qst_lo else NA_real_
+  qhi <- if (!is.null(res_abc$qst_hi)) res_abc$qst_hi else NA_real_
+  rvlo <- if (!is.null(res_abc$ratioVext_lo)) res_abc$ratioVext_lo else NA_real_
+  rvhi <- if (!is.null(res_abc$ratioVext_hi)) res_abc$ratioVext_hi else NA_real_
+  rv <- abc_sds_to_ratioVext(sds$abc_among_pop_sd, sds$abc_within_pop_sd, sds$abc_ext_sd)
+  list(
+    qst = qst,
+    qst_lo = qlo,
+    qst_hi = qhi,
+    abc_among_pop_sd = sds$abc_among_pop_sd,
+    abc_within_pop_sd = sds$abc_within_pop_sd,
+    abc_ext_sd = sds$abc_ext_sd,
+    abc_ratioVext = rv,
+    abc_ratioVext_lo = rvlo,
+    abc_ratioVext_hi = rvhi
+  )
 }
 
 # Load e1071 only if needed (for skewness and kurtosis)
@@ -104,11 +237,23 @@ num_cores <- min(4, max(1, detectCores() - 1))
 ALL_SUMMARY_STATS <- c(
   "among_pop_sd", "within_pop_sd", "ext_sd", "QST", "ratioVext",
   "F_among_pop", "F_within_pop",
-  "ratioVbetweenVext", "ratioVbetweenVtotal", "ratioVwithinVtotal", "ratioVextVtotal"
+  "ratioVbetweenVext", "ratioVbetweenVtotal", "ratioVwithinVtotal", "ratioVextVtotal",
+  "both_var_negative"
 )
 
 # Basic stats always calculated (needed for variance components)
-BASIC_STATS <- c("among_pop_sd", "within_pop_sd", "ext_sd")
+BASIC_STATS <- c("among_pop_sd", "within_pop_sd", "ext_sd", "both_var_negative")
+
+#' True when both ANOVA genetic variance components are non-positive (QST not estimable).
+#' Uses only the explicit both_var_negative flag from the floor policy.
+#' (Removed soft-clip-era among_pop_sd == within_pop_sd fallback; incorrect under F3.)
+is_both_neg <- function(obs_stats) {
+  if ("both_var_negative" %in% names(obs_stats)) {
+    v <- suppressWarnings(as.numeric(obs_stats["both_var_negative"]))
+    if (length(v) == 1L && !is.na(v) && v == 1) return(TRUE)
+  }
+  FALSE
+}
 
 #' Determine which summary statistics need to be calculated
 #' Based on the combinations that will be used for ABC
@@ -189,6 +334,51 @@ var_additive <- 1
 .DF_within <- num_pop * (num_ind - 1)
 .DF_residual <- num_pop * num_ind * (num_rep - 1)
 
+# Floor policy for variance components (sandbox investigation):
+#   baseline — soft-clip 1e-8*MS_total (status quo)
+#   F1       — residual-fraction interior floor
+#   F3       — ridge/softplus sqrt(max(raw,0)^2 + lambda^2)
+#   F4       — either-component floor -> both_var_negative (NA via bothnegna)
+# module1_F3 default: F3 (override still allowed via FLOOR_POLICY)
+.FLOOR_POLICY <- Sys.getenv("FLOOR_POLICY", "F3")
+.FLOOR_ALPHA <- as.numeric(Sys.getenv("FLOOR_ALPHA", "0.1"))
+cat("  Floor policy:", .FLOOR_POLICY, " alpha=", .FLOOR_ALPHA, "\n")
+
+.apply_floor_components <- function(var_among_raw, var_within_raw, MS_total,
+                                    noise_among, noise_within,
+                                    policy = .FLOOR_POLICY, alpha = .FLOOR_ALPHA) {
+  tf <- if (length(MS_total) == 1L) {
+    if (MS_total > 0) 1e-8 * MS_total else 1e-8
+  } else {
+    ifelse(MS_total > 0, 1e-8 * MS_total, 1e-8)
+  }
+  both_neg <- (var_among_raw <= 0) & (var_within_raw <= 0)
+  either_neg <- (var_among_raw <= 0) | (var_within_raw <= 0)
+  if (policy == "F1") {
+    lam_a <- pmax(alpha * noise_among, tf)
+    lam_w <- pmax(alpha * noise_within, tf)
+    var_among <- ifelse(var_among_raw > 0, var_among_raw, lam_a)
+    var_within <- ifelse(var_within_raw > 0, var_within_raw, lam_w)
+    flag_neg <- both_neg
+  } else if (policy == "F3") {
+    lam_a <- pmax(alpha * noise_among, tf)
+    lam_w <- pmax(alpha * noise_within, tf)
+    var_among <- sqrt(pmax(var_among_raw, 0)^2 + lam_a^2)
+    var_within <- sqrt(pmax(var_within_raw, 0)^2 + lam_w^2)
+    flag_neg <- rep(FALSE, length(var_among_raw))  # always interior
+  } else if (policy == "F4") {
+    var_among <- ifelse(var_among_raw > 0, var_among_raw, tf)
+    var_within <- ifelse(var_within_raw > 0, var_within_raw, tf)
+    flag_neg <- either_neg
+  } else {
+    # baseline
+    var_among <- ifelse(var_among_raw > 0, var_among_raw, tf)
+    var_within <- ifelse(var_within_raw > 0, var_within_raw, tf)
+    flag_neg <- both_neg
+  }
+  list(var_among = var_among, var_within = var_within, both_var_negative = flag_neg)
+}
+
 #' Calculate variance components using vectorized operations (NO data.frame)
 #' This is much more memory efficient than the tapply-based version
 calc_variance_fast <- function(trait_values) {
@@ -224,14 +414,17 @@ calc_variance_fast <- function(trait_values) {
   var_among_raw <- (MS_among - MS_within) / (num_ind * num_rep)
   var_within_raw <- (MS_within - MS_residual) / num_rep
   var_residual <- max(MS_residual, 0)
-  
-  # Soft-clip: when ANOVA estimates are negative, replace with a negligible value
-  # (1e-8 * MS_total) instead of exact 0. Fallback 1e-8 when MS_total is 0 (degenerate trait vector).
-  floor <- if (MS_total > 0) 1e-8 * MS_total else 1e-8
-  var_among  <- if (var_among_raw  > 0) var_among_raw  else floor
-  var_within <- if (var_within_raw > 0) var_within_raw else floor
-  
-  return(c(var_among, var_within, var_residual))
+
+  noise_among <- MS_within / (num_ind * num_rep)
+  noise_within <- MS_residual / num_rep
+  floored <- .apply_floor_components(
+    var_among_raw, var_within_raw, MS_total, noise_among, noise_within
+  )
+  var_among <- floored$var_among
+  var_within <- floored$var_within
+  both_var_negative <- floored$both_var_negative
+
+  return(c(var_among, var_within, var_residual, both_var_negative))
 }
 
 #' Generate simulated trait data and return summary statistics
@@ -250,8 +443,12 @@ generate_sim_data_summarystats <- function(
   }
   
   # Generate trait values directly as a vector (no data.frame)
-  mu_between_pop <- sqrt(2 * sd_between_pop^2)
-  means_pop <- c(mean_trait, mean_trait + mu_between_pop)
+  if (num_pop == 2) {
+    mu_between_pop <- sqrt(2 * sd_between_pop^2)
+    means_pop <- c(mean_trait, mean_trait + mu_between_pop)
+  } else {
+    means_pop <- rnorm(num_pop, mean = mean_trait, sd = sd_between_pop)
+  }
   means_ind <- rep(means_pop, each = num_ind) + rnorm(num_pop * num_ind, 0, sd_within_pop)
   trait_values <- rep(means_ind, each = num_rep) + rnorm(.n_total, 0, sd_ext)
   
@@ -260,6 +457,7 @@ generate_sim_data_summarystats <- function(
   among_pop_var <- var_components[1]
   within_pop_var <- var_components[2]
   ext_var <- var_components[3]
+  both_var_negative <- var_components[4]
   
   # Initialize result vector with only required stats
   result <- numeric(length(required_stats))
@@ -269,27 +467,32 @@ generate_sim_data_summarystats <- function(
   if ("among_pop_sd" %in% required_stats) result["among_pop_sd"] <- sqrt(among_pop_var)
   if ("within_pop_sd" %in% required_stats) result["within_pop_sd"] <- sqrt(within_pop_var)
   if ("ext_sd" %in% required_stats) result["ext_sd"] <- sqrt(ext_var)
+  if ("both_var_negative" %in% required_stats) result["both_var_negative"] <- both_var_negative
   
   # Derived stats (only calculate if needed)
-  total_genetic_var <- among_pop_var + within_pop_var
-  
+  # total_genetic_var is intentionally the QST-scaled additive genetic variance:
+  #   V_G = V_A_star = (V_GB + 2 * V_GW) / 2
+  total_genetic_var <- (among_pop_var + 2 * within_pop_var) / 2
+
   if ("QST" %in% required_stats) {
-    result["QST"] <- if (total_genetic_var == 0) 0 else among_pop_var / (among_pop_var + 2 * within_pop_var)
+    qst_denom <- among_pop_var + 2 * within_pop_var
+    result["QST"] <- if (qst_denom == 0) 0 else among_pop_var / qst_denom
   }
-  
+
   if ("ratioVext" %in% required_stats) {
     result["ratioVext"] <- if (total_genetic_var == 0) 0 else ext_var / total_genetic_var
   }
-  
+
   if ("F_among_pop" %in% required_stats) {
     result["F_among_pop"] <- if (total_genetic_var == 0 || within_pop_var == 0) 0 else among_pop_var / within_pop_var
   }
-  
+
   if ("F_within_pop" %in% required_stats) {
     result["F_within_pop"] <- if (total_genetic_var == 0 || ext_var == 0) 0 else within_pop_var / ext_var
   }
 
-  total_var <- among_pop_var + within_pop_var + ext_var
+  # total_var is intentionally the QST-scaled genetic-plus-extrinsic variance:
+  total_var <- total_genetic_var + ext_var
   if ("ratioVbetweenVext" %in% required_stats) {
     result["ratioVbetweenVext"] <- if (ext_var == 0) 0 else among_pop_var / ext_var
   }
@@ -317,24 +520,128 @@ generate_sim_data_summarystats <- function(
 
 #' Run batch simulations - MEMORY OPTIMIZED
 #' @param required_stats Character vector of stats to calculate (passed to generate_sim_data_summarystats)
-run_batch_simulations <- function(batch_size, sd_between_pop_batch, sd_within_pop_batch, sd_ext_batch, 
-                                   required_stats = NULL) {
-  results <- mcmapply(generate_sim_data_summarystats,
-                      MoreArgs = list(num_pop = num_pop, num_ind = num_ind, num_rep = num_rep,
-                                     mean_trait = mean_trait, required_stats = required_stats),
-                      sd_between_pop = sd_between_pop_batch,
-                      sd_within_pop = sd_within_pop_batch,
-                      sd_ext = sd_ext_batch,
-                      SIMPLIFY = TRUE,
-                      mc.cores = num_cores,
-                      mc.preschedule = TRUE,
-                      mc.set.seed = TRUE)
+run_batch_simulations <- function(batch_size, sd_between_pop_batch, sd_within_pop_batch, sd_ext_batch, required_stats = NULL) {
+  if (is.null(required_stats)) required_stats <- ALL_SUMMARY_STATS
   
-  if (is.matrix(results)) {
-    return(t(results))
+  # Generate traits for all simulations
+  if (num_pop == 2) {
+    mu_between_pop <- sqrt(2 * sd_between_pop_batch^2)
+    means_pop <- cbind(rep(mean_trait, batch_size), mean_trait + mu_between_pop)
   } else {
-    return(do.call(rbind, results))
+    noise_pop <- matrix(rnorm(batch_size * num_pop), nrow = batch_size, ncol = num_pop)
+    means_pop <- mean_trait + noise_pop * sd_between_pop_batch
   }
+  means_pop_exp <- means_pop[, rep(1:num_pop, each = num_ind), drop = FALSE]
+  
+  noise_ind <- matrix(rnorm(batch_size * .n_lines), nrow = batch_size, ncol = .n_lines)
+  noise_ind <- noise_ind * sd_within_pop_batch
+  means_ind <- means_pop_exp + noise_ind
+  
+  means_ind_exp <- means_ind[, rep(1:.n_lines, each = num_rep), drop = FALSE]
+  noise_rep <- matrix(rnorm(batch_size * .n_total), nrow = batch_size, ncol = .n_total)
+  noise_rep <- noise_rep * sd_ext_batch
+  trait_matrix <- means_ind_exp + noise_rep
+  
+  # ANOVA
+  overall_means <- rowSums(trait_matrix) / .n_total
+  
+  line_sums <- matrix(0, nrow = batch_size, ncol = .n_lines)
+  for (r in seq_len(num_rep)) {
+    line_sums <- line_sums + trait_matrix[, seq(r, .n_total, by = num_rep), drop = FALSE]
+  }
+  line_means <- line_sums / num_rep
+  
+  pop_sums <- matrix(0, nrow = batch_size, ncol = num_pop)
+  for (p in seq_len(num_pop)) {
+    cols <- (p - 1) * num_ind * num_rep + seq_len(num_ind * num_rep)
+    pop_sums[, p] <- rowSums(trait_matrix[, cols, drop = FALSE])
+  }
+  pop_means <- pop_sums / (num_ind * num_rep)
+  
+  SS_among <- rowSums((pop_means - overall_means)^2) * (num_ind * num_rep)
+  
+  SS_within <- 0
+  for (p in seq_len(num_pop)) {
+    line_cols <- (p - 1) * num_ind + seq_len(num_ind)
+    SS_within <- SS_within + rowSums((line_means[, line_cols, drop = FALSE] - pop_means[, p])^2)
+  }
+  SS_within <- SS_within * num_rep
+  
+  SS_residual <- 0
+  for (r in seq_len(num_rep)) {
+    SS_residual <- SS_residual + rowSums((trait_matrix[, seq(r, .n_total, by = num_rep), drop = FALSE] - line_means)^2)
+  }
+  
+  SS_total <- rowSums((trait_matrix - overall_means)^2)
+  MS_total <- SS_total / max(.n_total - 1L, 1L)
+  
+  MS_among <- SS_among / .DF_among
+  MS_within <- SS_within / .DF_within
+  MS_residual <- SS_residual / .DF_residual
+  
+  var_among_raw <- (MS_among - MS_within) / (num_ind * num_rep)
+  var_within_raw <- (MS_within - MS_residual) / num_rep
+  var_residual <- pmax(MS_residual, 0)
+
+  noise_among <- MS_within / (num_ind * num_rep)
+  noise_within <- MS_residual / num_rep
+  floored <- .apply_floor_components(
+    var_among_raw, var_within_raw, MS_total, noise_among, noise_within
+  )
+  among_pop_var <- floored$var_among
+  within_pop_var <- floored$var_within
+  ext_var <- var_residual
+  both_var_negative <- floored$both_var_negative
+
+  # Compute Required Stats
+  result <- matrix(0, nrow = batch_size, ncol = length(required_stats))
+  colnames(result) <- required_stats
+  
+  if ("among_pop_sd" %in% required_stats) result[, "among_pop_sd"] <- sqrt(among_pop_var)
+  if ("within_pop_sd" %in% required_stats) result[, "within_pop_sd"] <- sqrt(within_pop_var)
+  if ("ext_sd" %in% required_stats) result[, "ext_sd"] <- sqrt(ext_var)
+  if ("both_var_negative" %in% required_stats) result[, "both_var_negative"] <- both_var_negative
+  
+  total_genetic_var <- (among_pop_var + 2 * within_pop_var) / 2
+  
+  if ("QST" %in% required_stats) {
+    qst_denom <- among_pop_var + 2 * within_pop_var
+    result[, "QST"] <- ifelse(qst_denom == 0, 0, among_pop_var / qst_denom)
+  }
+  if ("ratioVext" %in% required_stats) {
+    result[, "ratioVext"] <- ifelse(total_genetic_var == 0, 0, ext_var / total_genetic_var)
+  }
+  if ("F_among_pop" %in% required_stats) {
+    result[, "F_among_pop"] <- ifelse(total_genetic_var == 0 | within_pop_var == 0, 0, among_pop_var / within_pop_var)
+  }
+  if ("F_within_pop" %in% required_stats) {
+    result[, "F_within_pop"] <- ifelse(total_genetic_var == 0 | ext_var == 0, 0, within_pop_var / ext_var)
+  }
+  
+  total_var <- total_genetic_var + ext_var
+  if ("ratioVbetweenVext" %in% required_stats) {
+    result[, "ratioVbetweenVext"] <- ifelse(ext_var == 0, 0, among_pop_var / ext_var)
+  }
+  if ("ratioVbetweenVtotal" %in% required_stats) {
+    result[, "ratioVbetweenVtotal"] <- ifelse(total_var == 0, 0, among_pop_var / total_var)
+  }
+  if ("ratioVwithinVtotal" %in% required_stats) {
+    result[, "ratioVwithinVtotal"] <- ifelse(total_var == 0, 0, within_pop_var / total_var)
+  }
+  if ("ratioVextVtotal" %in% required_stats) {
+    result[, "ratioVextVtotal"] <- ifelse(total_var == 0, 0, ext_var / total_var)
+  }
+  
+  if ("skewness_data" %in% required_stats) {
+    load_e1071_if_needed()
+    result[, "skewness_data"] <- apply(trait_matrix, 1, skewness)
+  }
+  if ("kurtosis_data" %in% required_stats) {
+    load_e1071_if_needed()
+    result[, "kurtosis_data"] <- apply(trait_matrix, 1, kurtosis)
+  }
+  
+  return(result)
 }
 
 #' Estimate QST using ABC with MULTIPLE summary stat combinations
@@ -348,8 +655,19 @@ run_batch_simulations <- function(batch_size, sd_between_pop_batch, sd_within_po
 #' @return Named list with QST estimates for each combination
 estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_combos, last_abc_env = NULL) {
   
+  # Short-circuit: both ANOVA components non-positive -> QST not estimable (NA).
+  if (is_both_neg(obs_stats)) {
+    combo_names <- sapply(summary_stat_combos, function(x) paste(x, collapse = ","))
+    res <- as.list(rep(NA_real_, length(combo_names)))
+    names(res) <- combo_names
+    return(res)
+  }
+
+  abc_seed <- abc_seed_from_obs_stats(obs_stats)
+  set.seed(abc_seed)
+  cat("ABC estimation seed:", abc_seed, "\n")
+
   # Ensure cleanup happens even on error
-  on.exit(gc(verbose = FALSE, full = TRUE, reset = TRUE), add = TRUE)
   
   # OPTIMIZATION: Determine which stats are actually needed
   required_stats <- get_required_stats(summary_stat_combos)
@@ -357,14 +675,14 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
   cat("Required stats (", n_stats, "/", length(ALL_SUMMARY_STATS), "):",
       paste(required_stats, collapse = ", "), "\n")
   
-  batch_size <- 5000  # Smaller batches reduce peak memory from forking
+  batch_size <- as.integer(Sys.getenv("QST_ABC_BATCH_SIZE", "50000"))
   num_batches <- ceiling(num_sim / batch_size)
   
   # Generate prior parameters based on observed stats.
   # prior_floor prevents degenerate priors when observed genetic SDs are tiny.
   # Uses 0.1*(among + within + ext): ext_sd coupling is 0.1x, not the old 0.2x
   # that artificially inflated neutral Q_ST at high V_E/V_G.
-  prior_floor <- 0.1 * (obs_stats['among_pop_sd'] + obs_stats['within_pop_sd'] + obs_stats['ext_sd'])
+  prior_floor <- 0.1 * (obs_stats['among_pop_sd'] + obs_stats['within_pop_sd'])
   sd_between_pop_prior <- runif(num_sim, 0, max(2 * obs_stats['among_pop_sd'], prior_floor))
   sd_within_pop_prior  <- runif(num_sim, 0, max(2 * obs_stats['within_pop_sd'], prior_floor))
   sd_ext_prior         <- runif(num_sim, 0, 2 * obs_stats['ext_sd'])
@@ -375,7 +693,6 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
   colnames(prior_params) <- c("sd_between_pop", "sd_within_pop", "sd_ext")
   
   rm(sd_between_pop_prior, sd_within_pop_prior, sd_ext_prior)
-  gc(verbose = FALSE, reset = TRUE)
   
   # Process in batches
   cat("Simulating", num_sim, "for", length(summary_stat_combos), "combinations...\n")
@@ -393,7 +710,6 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
     
     sim_stats_matrix[start_idx:end_idx, ] <- batch_results
     rm(batch_results)
-    gc(verbose = FALSE, reset = TRUE)
   }
   
   colnames(sim_stats_matrix) <- required_stats
@@ -407,7 +723,6 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
   n_valid <- nrow(sim_stats_valid)
   
   rm(sim_stats_matrix, prior_params, valid_rows)
-  gc(verbose = FALSE, reset = TRUE)
   
   cat("Valid simulations:", n_valid, "/", num_sim, "\n")
   
@@ -432,7 +747,7 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
       estimator = meth_abc,
       hcorr = TRUE
     )
-    results <- as.list(vec)
+    results <- as.list(fast_abc_multi_qst(vec))
     if (!is.null(last_abc_env) && is.environment(last_abc_env)) {
       assign("res_abc", list(method = meth_abc, fast_vectorized = TRUE, estimates = vec),
              envir = last_abc_env)
@@ -460,7 +775,6 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
         }
         result <- qst_mean_from_abc(res_abc)
         rm(res_abc, combo_sumstat, combo_target)
-        gc(verbose = FALSE, reset = TRUE)
         result
 
       }, error = function(e) {
@@ -469,7 +783,6 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
           assign("last_error", conditionMessage(e), envir = last_abc_env)
         }
         warning(paste("ABC failed for", combo_name, ":", e$message))
-        gc(verbose = FALSE, reset = TRUE)
         NA
       })
 
@@ -483,9 +796,22 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
   }
 
   rm(sim_stats_valid, prior_params_valid, obs_stats_subset)
-  gc(verbose = FALSE, full = TRUE, reset = TRUE)
   
   return(results)
+}
+
+#' Deterministic RNG seed for paired ABC runs (same obs_stats -> same seed).
+abc_seed_from_obs_stats <- function(obs_stats) {
+  env_seed <- Sys.getenv("QST_ABC_SEED", unset = "")
+  if (nzchar(env_seed)) {
+    v <- suppressWarnings(as.integer(env_seed))
+    if (length(v) == 1L && !is.na(v)) return(v)
+  }
+  keys <- c("among_pop_sd", "within_pop_sd", "ext_sd")
+  vals <- suppressWarnings(as.numeric(obs_stats[keys]))
+  if (length(vals) != 3L || !all(is.finite(vals))) return(42L)
+  raw <- paste(sprintf("%.8e", vals), collapse = "|")
+  as.integer((sum(utf8ToInt(raw)) %% (.Machine$integer.max - 1L)) + 1L)
 }
 
 #' Estimate QST using ABC - disk-efficient version
@@ -497,17 +823,25 @@ estimate_qst_abc_multi <- function(obs_stats, num_sim = num_sim, summary_stat_co
 #' @return Estimated QST value
 estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = c("QST", "ratioVext"), last_abc_env = NULL) {
   
+  # Short-circuit: both ANOVA components non-positive -> QST not estimable (NA).
+  if (is_both_neg(obs_stats)) {
+    return(abc_na_result())
+  }
+
+  abc_seed <- abc_seed_from_obs_stats(obs_stats)
+  set.seed(abc_seed)
+  cat("ABC estimation seed:", abc_seed, "\n")
+
   # Ensure cleanup happens even on error - use reset=TRUE to return memory to OS
-  on.exit(gc(verbose = FALSE, full = TRUE, reset = TRUE), add = TRUE)
   
-  batch_size <- 5000  # Smaller batches reduce peak memory from forking
+  batch_size <- as.integer(Sys.getenv("QST_ABC_BATCH_SIZE", "50000"))
   num_batches <- ceiling(num_sim / batch_size)
   
   # Generate prior parameters based on observed stats.
   # prior_floor prevents degenerate priors when observed genetic SDs are tiny.
   # Uses 0.1*(among + within + ext): ext_sd coupling is 0.1x, not the old 0.2x
   # that artificially inflated neutral Q_ST at high V_E/V_G.
-  prior_floor <- 0.1 * (obs_stats['among_pop_sd'] + obs_stats['within_pop_sd'] + obs_stats['ext_sd'])
+  prior_floor <- 0.1 * (obs_stats['among_pop_sd'] + obs_stats['within_pop_sd'])
   sd_between_pop_prior <- runif(num_sim, 0, max(2 * obs_stats['among_pop_sd'], prior_floor))
   sd_within_pop_prior  <- runif(num_sim, 0, max(2 * obs_stats['within_pop_sd'], prior_floor))
   sd_ext_prior         <- runif(num_sim, 0, 2 * obs_stats['ext_sd'])
@@ -520,7 +854,6 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
   
   # Free the individual prior vectors early - they're now in prior_params
   rm(sd_between_pop_prior, sd_within_pop_prior, sd_ext_prior)
-  gc(verbose = FALSE)
   
   # Process in batches
   cat("Simulating", num_sim, "in", num_batches, "batches...\n")
@@ -538,7 +871,6 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
     sim_stats_matrix[start_idx:end_idx, ] <- batch_results
     rm(batch_results)
     # Use reset=TRUE to help return memory to OS after forked processes
-    gc(verbose = FALSE, reset = TRUE)
     
     if (b %% 5 == 0 || b == num_batches) {
       cat("  Batch", b, "/", num_batches, "complete\n")
@@ -557,7 +889,6 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
   
   # Free original matrices immediately after subsetting
   rm(sim_stats_matrix, prior_params, valid_rows)
-  gc(verbose = FALSE)
   
   cat("Valid simulations:", n_valid, "/", num_sim, "\n")
   
@@ -576,9 +907,9 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
       assign("res_abc", res_abc, envir = last_abc_env)
       assign("last_error", NULL, envir = last_abc_env)
     }
-    result <- qst_mean_from_abc(res_abc)
+    sds <- abc_sd_means_from_abc(res_abc)
+    result <- abc_result_to_estimate(res_abc)
     rm(res_abc)
-    gc(verbose = FALSE)
     result
     
   }, error = function(e) {
@@ -587,15 +918,24 @@ estimate_qst_abc <- function(obs_stats, num_sim = num_sim, summary_stat_names = 
       assign("last_error", conditionMessage(e), envir = last_abc_env)
     }
     warning(paste("ABC failed:", e$message))
-    NA
+    abc_na_result()
   })
   
   # Final cleanup of remaining objects
   rm(sim_stats_valid, prior_params_valid)
   # Use reset=TRUE to return memory to OS (important for forked processes in cgroups)
-  gc(verbose = FALSE, full = TRUE, reset = TRUE)
   
   return(qst_estimate)
+}
+
+is_valid_generated_obs <- function(obs) {
+  if (is.null(obs) || !length(obs)) return(FALSE)
+  if (any(is.nan(obs)) || any(is.infinite(obs))) return(FALSE)
+  if ("among_pop_sd" %in% names(obs)) {
+    ap <- obs["among_pop_sd"]
+    if (!is.finite(ap) || ap == 0) return(FALSE)
+  }
+  TRUE
 }
 
 #' Generate observed summary statistics for neutral simulation
@@ -631,7 +971,7 @@ generate_neutral_obs_stats <- function(fst_value, ratioVext, seed = NULL, requir
       required_stats = required_stats
     )
     
-    if (obs['among_pop_sd'] != 0 && !any(is.nan(obs)) && !any(is.infinite(obs))) {
+    if (is_valid_generated_obs(obs)) {
       obs_valid <- TRUE
     }
     attempts <- attempts + 1
@@ -645,7 +985,7 @@ generate_neutral_obs_stats <- function(fst_value, ratioVext, seed = NULL, requir
   return(obs)
 }
 
-#' Generate observed summary statistics for adaptive trait simulation (Module 2)
+#' Generate observed summary statistics for adaptive trait simulation (Design Module)
 #' Uses pre-defined QST and V_E/V_G ratio to derive variance parameters
 #' OPTIMIZED: Only calculates required stats
 #' 
@@ -683,7 +1023,7 @@ generate_adaptive_obs_stats <- function(qst_value, ve_ratio, seed = NULL, requir
       required_stats = required_stats
     )
     
-    if (obs['among_pop_sd'] != 0 && !any(is.nan(obs)) && !any(is.infinite(obs))) {
+    if (is_valid_generated_obs(obs)) {
       obs_valid <- TRUE
     }
     attempts <- attempts + 1
@@ -697,7 +1037,140 @@ generate_adaptive_obs_stats <- function(qst_value, ve_ratio, seed = NULL, requir
   return(obs)
 }
 
-#' Process a batch of repeats for adaptive QST estimation (Module 2)
+#' Direct ANOVA QST estimate from observed summary statistics (Design Module perf-eval)
+estimate_qst_anova <- function(obs_stats) {
+  if (is_both_neg(obs_stats)) return(NA_real_)
+  if (!"QST" %in% names(obs_stats)) return(NA_real_)
+  qst <- suppressWarnings(as.numeric(obs_stats["QST"]))
+  if (length(qst) != 1L || is.na(qst)) return(NA_real_)
+  qst
+}
+
+#' 2x6 without-replication variance components (soft-clip floor, no residual df)
+calc_variance_norep_fast <- function(trait_values) {
+  pop_sums <- rowSums(matrix(trait_values, nrow = num_pop, ncol = num_ind, byrow = TRUE))
+  pop_means <- pop_sums / num_ind
+  overall_mean <- mean(trait_values)
+
+  SS_among <- sum((pop_means - overall_mean)^2) * num_ind
+  pop_means_expanded <- rep(pop_means, each = num_ind)
+  SS_within <- sum((trait_values - pop_means_expanded)^2)
+
+  MS_among <- SS_among / (num_pop - 1)
+  MS_within <- SS_within / (num_pop * (num_ind - 1))
+
+  var_among_raw <- (MS_among - MS_within) / num_ind
+  var_within_raw <- MS_within
+
+  SS_total <- sum((trait_values - overall_mean)^2)
+  MS_total <- SS_total / max(num_pop * num_ind - 1L, 1L)
+  noise_among <- MS_within / num_ind
+  noise_within <- MS_within
+  floored <- .apply_floor_components(
+    var_among_raw, var_within_raw, MS_total, noise_among, noise_within
+  )
+  c(floored$var_among, floored$var_within, floored$both_var_negative)
+}
+
+#' Generate simulated trait summary stats without replication (2 pop x 6 strain)
+generate_sim_data_summarystats_norep <- function(
+  num_pop = 2, num_ind = 6,
+  mean_trait = 100, sd_between_pop = 20, sd_within_pop = 10, sd_ext = 1,
+  required_stats = NULL
+) {
+  if (is.null(required_stats)) {
+    required_stats <- c("among_pop_sd", "within_pop_sd", "QST", "both_var_negative")
+  }
+
+  if (num_pop == 2) {
+    mu_between_pop <- sqrt(2 * sd_between_pop^2)
+    means_pop <- c(mean_trait, mean_trait + mu_between_pop)
+  } else {
+    means_pop <- rnorm(num_pop, mean = mean_trait, sd = sd_between_pop)
+  }
+  n_total <- num_pop * num_ind
+  means_ind <- rep(means_pop, each = num_ind) +
+    rnorm(n_total, 0, sd_within_pop) +
+    rnorm(n_total, 0, sd_ext)
+
+  var_components <- calc_variance_norep_fast(means_ind)
+  among_pop_var <- var_components[1]
+  within_pop_var <- var_components[2]
+  both_var_negative <- var_components[3]
+
+  result <- numeric(length(required_stats))
+  names(result) <- required_stats
+  if ("among_pop_sd" %in% required_stats) result["among_pop_sd"] <- sqrt(among_pop_var)
+  if ("within_pop_sd" %in% required_stats) result["within_pop_sd"] <- sqrt(within_pop_var)
+  if ("both_var_negative" %in% required_stats) result["both_var_negative"] <- both_var_negative
+  if ("QST" %in% required_stats) {
+    qst_denom <- among_pop_var + 2 * within_pop_var
+    result["QST"] <- if (qst_denom == 0) 0 else among_pop_var / qst_denom
+  }
+  result
+}
+
+generate_neutral_obs_stats_norep <- function(fst_value, ratioVext, seed = NULL, required_stats = NULL) {
+  if (!is.null(seed)) set.seed(seed)
+  sd_within_pop <- sqrt(abs((1 - fst_value) * var_additive))
+  sd_between_pop <- sqrt(abs(2 * fst_value * var_additive))
+  ext_sd <- sqrt(ratioVext * var_additive)
+
+  obs_valid <- FALSE
+  attempts <- 0
+  max_attempts <- 100
+  while (!obs_valid && attempts < max_attempts) {
+    obs <- generate_sim_data_summarystats_norep(
+      num_pop = num_pop, num_ind = num_ind,
+      mean_trait = mean_trait,
+      sd_between_pop = sd_between_pop,
+      sd_within_pop = sd_within_pop,
+      sd_ext = ext_sd,
+      required_stats = required_stats
+    )
+    if (is_valid_generated_obs(obs)) {
+      obs_valid <- TRUE
+    }
+    attempts <- attempts + 1
+  }
+  if (!obs_valid) {
+    warning("Could not generate valid neutral observation (norep)")
+    return(NULL)
+  }
+  obs
+}
+
+generate_adaptive_obs_stats_norep <- function(qst_value, ve_ratio, seed = NULL, required_stats = NULL) {
+  if (!is.null(seed)) set.seed(seed)
+  sd_within_pop <- sqrt(abs((1 - qst_value) * var_additive))
+  sd_between_pop <- sqrt(abs(2 * qst_value * var_additive))
+  ext_sd <- sqrt(ve_ratio * var_additive)
+
+  obs_valid <- FALSE
+  attempts <- 0
+  max_attempts <- 100
+  while (!obs_valid && attempts < max_attempts) {
+    obs <- generate_sim_data_summarystats_norep(
+      num_pop = num_pop, num_ind = num_ind,
+      mean_trait = mean_trait,
+      sd_between_pop = sd_between_pop,
+      sd_within_pop = sd_within_pop,
+      sd_ext = ext_sd,
+      required_stats = required_stats
+    )
+    if (is_valid_generated_obs(obs)) {
+      obs_valid <- TRUE
+    }
+    attempts <- attempts + 1
+  }
+  if (!obs_valid) {
+    warning(paste("Could not generate valid adaptive observation (norep) for QST =", qst_value))
+    return(NULL)
+  }
+  obs
+}
+
+#' Process a batch of repeats for adaptive QST estimation (Design Module)
 #' Simulates traits with pre-defined QST and V_E ratio, estimates QST via ABC
 #' 
 #' @param n_repeats Number of repeats to process
@@ -729,11 +1202,10 @@ process_evaluate_batch <- function(n_repeats, qst_value, ve_ratio, num_sim,
     if (!is.null(obs_stats)) {
       # Run ABC estimation
       qst_estimate <- estimate_qst_abc(obs_stats, num_sim, summary_stat_names)
-      results$estimated_qst[i] <- qst_estimate
+      results$estimated_qst[i] <- qst_estimate$qst
     }
     
     # Force garbage collection after each repeat to prevent memory accumulation
-    gc(verbose = FALSE, full = TRUE, reset = TRUE)
     
     # Progress update every 10 repeats
     if (i %% 10 == 0 || i == n_repeats) {
@@ -744,7 +1216,7 @@ process_evaluate_batch <- function(n_repeats, qst_value, ve_ratio, num_sim,
   return(results)
 }
 
-#' Process a batch of repeats with MULTIPLE summary stat combinations (Module 2)
+#' Process a batch of repeats with MULTIPLE summary stat combinations (Design Module)
 #' Runs ABC with all combinations on the SAME simulated data for efficiency
 #' OPTIMIZED: Only calculates required summary statistics
 #' 
@@ -795,8 +1267,6 @@ process_evaluate_batch_multi <- function(n_repeats, qst_value, ve_ratio, num_sim
       }
     }
     
-    gc(verbose = FALSE, full = TRUE, reset = TRUE)
-    
     if (i %% 10 == 0 || i == n_repeats) {
       cat("  Processed", i, "/", n_repeats, "repeats\n")
     }
@@ -813,53 +1283,8 @@ process_evaluate_batch_multi <- function(n_repeats, qst_value, ve_ratio, num_sim
 #' @param ratioVext V_E / V_G ratio observed from real traits
 #' @param num_sim Number of ABC simulations per FST
 #' @param summary_stat_combos List of character vectors, each specifying a combination
-#' @return Data frame with fst, combo, and qst columns
 process_fst_batch_multi <- function(fst_values, ratioVext, num_sim, summary_stat_combos, start_idx = 1) {
-  n_fst <- length(fst_values)
-  n_combos <- length(summary_stat_combos)
-  combo_names <- sapply(summary_stat_combos, function(x) paste(x, collapse = ","))
-  
-  # OPTIMIZATION: Determine required stats upfront
-  required_stats <- get_required_stats(summary_stat_combos)
-  cat("Required stats for batch:", paste(required_stats, collapse = ", "), "\n")
-  
-  # Create result data frame with all combinations
-  results <- data.frame(
-    fst = rep(fst_values, each = n_combos),
-    combo = rep(combo_names, n_fst),
-    qst = rep(NA_real_, n_fst * n_combos),
-    stringsAsFactors = FALSE
-  )
-  
-  for (i in seq_along(fst_values)) {
-    fst_value <- fst_values[i]
-    
-    # Set seed for reproducibility - Use start_idx to ensure unique seeds for identical FST values
-    global_idx <- start_idx + i - 1
-    seed <- (round(fst_value * 1e6) + global_idx * 10000) %% .Machine$integer.max
-    
-    # Generate neutral observed stats (only required ones)
-    obs_stats <- generate_neutral_obs_stats(fst_value, ratioVext, seed, required_stats)
-    
-    if (!is.null(obs_stats)) {
-      # Run ABC with ALL combinations on the SAME simulated data
-      qst_estimates <- estimate_qst_abc_multi(obs_stats, num_sim, summary_stat_combos)
-      
-      # Store results for each combination
-      for (j in seq_along(combo_names)) {
-        idx <- (i - 1) * n_combos + j
-        results$qst[idx] <- qst_estimates[[combo_names[j]]]
-      }
-    }
-    
-    gc(verbose = FALSE, full = TRUE, reset = TRUE)
-    
-    if (i %% 10 == 0 || i == n_fst) {
-      cat("  Processed", i, "/", n_fst, "FST values\n")
-    }
-  }
-  
-  return(results)
+  fast_process_fst_batch_multi(fst_values, ratioVext, num_sim, summary_stat_combos, start_idx)
 }
 
 #' Process a batch of FST values for neutral QST estimation
@@ -871,36 +1296,7 @@ process_fst_batch_multi <- function(fst_values, ratioVext, num_sim, summary_stat
 #' @param summary_stat_names Summary statistics to use for ABC
 #' @return Data frame with fst and qst columns
 process_fst_batch <- function(fst_values, ratioVext, num_sim, summary_stat_names = c("QST", "ratioVext"), start_idx = 1) {
-  n_fst <- length(fst_values)
-  results <- data.frame(fst = fst_values, qst = rep(NA_real_, n_fst))
-  
-  for (i in seq_along(fst_values)) {
-    fst_value <- fst_values[i]
-    
-    # Set seed for reproducibility - Use start_idx to ensure unique seeds for identical FST values
-    global_idx <- start_idx + i - 1
-    seed <- (round(fst_value * 1e6) + global_idx * 10000) %% .Machine$integer.max
-    
-    # Generate neutral observed stats
-    obs_stats <- generate_neutral_obs_stats(fst_value, ratioVext, seed)
-    
-    if (!is.null(obs_stats)) {
-      # Run ABC estimation
-      qst_estimate <- estimate_qst_abc(obs_stats, num_sim, summary_stat_names)
-      results$qst[i] <- qst_estimate
-    }
-    
-    # Force garbage collection after each FST to prevent memory accumulation
-    # Use reset=TRUE to return memory to OS (critical for cgroup memory limits)
-    gc(verbose = FALSE, full = TRUE, reset = TRUE)
-    
-    # Progress update every 10 FST values
-    if (i %% 10 == 0 || i == n_fst) {
-      cat("  Processed", i, "/", n_fst, "FST values\n")
-    }
-  }
-  
-  return(results)
+  fast_process_fst_batch(fst_values, ratioVext, num_sim, summary_stat_names, start_idx)
 }
 
 # Command-line interface (skip when sourcing for diagnostics: Sys.setenv(QST_ABC_SOURCE_ONLY=1))
@@ -910,11 +1306,11 @@ if (!interactive() && Sys.getenv("QST_ABC_SOURCE_ONLY", "") != "1") {
   if (length(args) < 4) {
     cat("Usage: Rscript qst_abc_sim.R <mode> <input> <ratioVext_or_ve_ratio> <output_file> [num_sim] [summary_stats]\n")
     cat("\nModes:\n")
-    cat("  Module 1 (Detection):\n")
+    cat("  Detection Module:\n")
     cat("    trait        - Estimate QST for observed trait data\n")
     cat("    neutral      - Estimate QST for single neutral FST value\n")
     cat("    batch_neutral - Estimate QST for batch of neutral FST values\n")
-    cat("  Module 2 (Performance Evaluation):\n")
+    cat("  Design Module (Performance Evaluation):\n")
     cat("    evaluate     - Estimate QST for single adaptive QST/VE_ratio\n")
     cat("    batch_evaluate - Estimate QST for batch of repeats with same QST/VE_ratio\n")
     cat("\nArguments:\n")
@@ -969,52 +1365,63 @@ if (!interactive() && Sys.getenv("QST_ABC_SOURCE_ONLY", "") != "1") {
     load(input)  # Expects 'obs_stats' variable
     cat("Ext SD from obs_stats:", obs_stats['ext_sd'], "\n")
     
-    # Run ABC - only save QST to minimize disk usage
-    qst_estimate <- estimate_qst_abc(obs_stats, num_sim, summary_stats)
+    both_neg <- is_both_neg(obs_stats)
+    if (both_neg) {
+      cat("NOTE: both ANOVA variance components non-positive -> trait QST set to NA\n")
+      abc_result <- abc_na_result()
+    } else {
+      abc_result <- estimate_qst_abc(obs_stats, num_sim, summary_stats)
+    }
     
     result <- list(
       mode = "trait",
-      qst = qst_estimate
+      qst = abc_result$qst,
+      qst_lo = abc_result$qst_lo,
+      qst_hi = abc_result$qst_hi,
+      abc_among_pop_sd = abc_result$abc_among_pop_sd,
+      abc_within_pop_sd = abc_result$abc_within_pop_sd,
+      abc_ext_sd = abc_result$abc_ext_sd,
+      abc_ratioVext = abc_result$abc_ratioVext,
+      abc_ratioVext_lo = abc_result$abc_ratioVext_lo,
+      abc_ratioVext_hi = abc_result$abc_ratioVext_hi,
+      anova_ratioVext = as.numeric(obs_stats["ratioVext"]),
+      ratioVext_source = "abc",
+      both_var_negative = as.integer(both_neg)
     )
     
   } else if (mode == "neutral") {
     fst_value <- as.numeric(input)
     
-    # Get ext_sd - either a numeric value or path to obs_stats file
-    if (file.exists(ratioVext_arg)) {
-      # Load from obs_stats file
-      load(ratioVext_arg)  # Loads obs_stats
-      ratioVext <- as.numeric(obs_stats["ratioVext"])
-      cat("RatioVext from obs_stats file:", ratioVext, "\n")
-    } else {
-      ratioVext <- as.numeric(ratioVext_arg)
-      cat("RatioVext from argument:", ratioVext, "\n")
-    }
+    rv_info <- resolve_ratioVext_arg(ratioVext_arg)
+    ratioVext <- rv_info$ratioVext
     
-    # Set seed based on FST value for reproducibility
-    seed <- round(fst_value * 1e6) %% .Machine$integer.max
-    
-    # Generate neutral observed stats
-    obs_stats <- generate_neutral_obs_stats(fst_value, ratioVext, seed)
-    
-    if (is.null(obs_stats)) {
+    if (!isTRUE(rv_info$valid)) {
       result <- list(mode = "neutral", fst = fst_value, qst = NA)
     } else {
-      # Run ABC - only save QST to minimize disk usage
-      qst_estimate <- estimate_qst_abc(obs_stats, num_sim, summary_stats)
-      result <- list(
-        mode = "neutral",
-        fst = fst_value,
-        qst = qst_estimate
-      )
+      # Set seed based on FST value for reproducibility
+      seed <- round(fst_value * 1e6) %% .Machine$integer.max
+      
+      # Generate neutral observed stats
+      obs_stats <- generate_neutral_obs_stats(fst_value, ratioVext, seed)
+      
+      if (is.null(obs_stats)) {
+        result <- list(mode = "neutral", fst = fst_value, qst = NA)
+      } else {
+        qst_estimate <- estimate_qst_abc(obs_stats, num_sim, summary_stats)
+        result <- list(
+          mode = "neutral",
+          fst = fst_value,
+          qst = qst_estimate$qst
+        )
+      }
     }
     
   } else if (mode == "batch_neutral") {
     # Batch mode: process multiple FST values in one job
-    # Input format: "start_idx:end_idx:fst_file" OR just a file path
+    # ratioVext_arg: numeric VE/VG, obs_stats path, or trait_qst.RData (abcVEVG)
     
-    ratioVext <- as.numeric(ratioVext_arg)
-    cat("RatioVext:", ratioVext, "\n")
+    rv_info <- resolve_ratioVext_arg(ratioVext_arg)
+    ratioVext <- rv_info$ratioVext
     
     # Parse input - either "start:end:file" or just file path
     if (grepl(":", input)) {
@@ -1040,8 +1447,14 @@ if (!interactive() && Sys.getenv("QST_ABC_SOURCE_ONLY", "") != "1") {
     
     cat("Number of FST values:", length(fst_values), "\n")
     
-    # Process all FST values - use multi-combo if multiple combinations
-    if (is_multi_combo) {
+    if (!isTRUE(rv_info$valid)) {
+      cat("NOTE: invalid ratioVext from trait ABC -> all neutral QST set to NA\n")
+      batch_results <- data.frame(
+        fst = fst_values,
+        qst = rep(NA_real_, length(fst_values)),
+        both_var_negative = rep(1L, length(fst_values))
+      )
+    } else if (is_multi_combo) {
       cat("Running ABC with", length(summary_stat_combos), "summary stat combinations\n")
       batch_results <- process_fst_batch_multi(fst_values, ratioVext, num_sim, summary_stat_combos, start_idx)
     } else {
@@ -1055,8 +1468,86 @@ if (!interactive() && Sys.getenv("QST_ABC_SOURCE_ONLY", "") != "1") {
       results = batch_results
     )
     
+  } else if (mode == "full_trait") {
+    fst_file <- ratioVext_arg
+    load(input)
+    cat("Ext SD from obs_stats:", obs_stats["ext_sd"], "\n")
+
+    both_neg <- is_both_neg(obs_stats)
+    if (both_neg) {
+      cat("NOTE: both ANOVA variance components non-positive -> trait QST set to NA\n")
+      abc_result <- abc_na_result()
+    } else {
+      abc_result <- estimate_qst_abc(obs_stats, num_sim, summary_stats)
+    }
+
+    trait_result <- list(
+      mode = "trait",
+      qst = abc_result$qst,
+      qst_lo = abc_result$qst_lo,
+      qst_hi = abc_result$qst_hi,
+      abc_among_pop_sd = abc_result$abc_among_pop_sd,
+      abc_within_pop_sd = abc_result$abc_within_pop_sd,
+      abc_ext_sd = abc_result$abc_ext_sd,
+      abc_ratioVext = abc_result$abc_ratioVext,
+      abc_ratioVext_lo = abc_result$abc_ratioVext_lo,
+      abc_ratioVext_hi = abc_result$abc_ratioVext_hi,
+      anova_ratioVext = as.numeric(obs_stats["ratioVext"]),
+      ratioVext_source = "abc",
+      both_var_negative = as.integer(both_neg),
+      abc_na = as.integer(!both_neg && is.na(abc_result$qst))
+    )
+
+    trait_qst_path <- sub("_result\\.csv$", "_trait_qst.RData", output_file)
+    result <- trait_result
+    save(result, file = trait_qst_path)
+    cat("Saved trait ABC:", trait_qst_path, "\n")
+
+    fst_values <- scan(fst_file, what = numeric(), quiet = TRUE)
+    cat("Processing", length(fst_values), "FST values from", fst_file, "\n")
+    batch_num <- suppressWarnings(as.integer(gsub(".*fst_batch_([0-9]+)\\.txt.*", "\\1", fst_file)))
+    if (is.na(batch_num)) batch_num <- 1
+    start_idx <- (batch_num - 1) * 10000 + 1
+
+    ratioVext <- trait_result$abc_ratioVext
+    ratio_valid <- !is.null(ratioVext) && length(ratioVext) == 1L && is.finite(ratioVext)
+    if (!ratio_valid) {
+      cat("NOTE: invalid abc_ratioVext from trait ABC -> all neutral QST set to NA\n")
+      batch_results <- data.frame(
+        fst = fst_values,
+        qst = rep(NA_real_, length(fst_values)),
+        both_var_negative = rep(1L, length(fst_values))
+      )
+    } else if (is_multi_combo) {
+      batch_results <- process_fst_batch_multi(fst_values, ratioVext, num_sim, summary_stat_combos, start_idx)
+    } else {
+      batch_results <- process_fst_batch(fst_values, ratioVext, num_sim, summary_stats, start_idx)
+    }
+
+    neutral_path <- "neutral_batch_1.RData"
+    result <- list(
+      mode = "batch_neutral",
+      n_fst = length(fst_values),
+      is_multi_combo = is_multi_combo,
+      results = batch_results
+    )
+    save(result, file = neutral_path)
+    cat("Saved neutral batch:", neutral_path, "\n")
+
+    agg_script <- file.path(script_dir, "aggregate_qst.R")
+    if (!file.exists(agg_script)) stop("Missing aggregate script: ", agg_script)
+    old_src <- Sys.getenv("QST_ABC_SOURCE_ONLY", "")
+    Sys.setenv(QST_ABC_SOURCE_ONLY = "1")
+    sys.source(agg_script, envir = environment(), keep.source = FALSE)
+    if (nzchar(old_src)) Sys.setenv(QST_ABC_SOURCE_ONLY = old_src) else Sys.unsetenv("QST_ABC_SOURCE_ONLY")
+
+    threshold_pct <- as.numeric(Sys.getenv("QST_THRESHOLD_PERCENTILE", "0.95"))
+    sanity <- identical(toupper(Sys.getenv("SANITY_CHECK", "FALSE")), "TRUE")
+    aggregate_qst_from_files(trait_qst_path, dirname(trait_qst_path), threshold_pct, output_file, sanity)
+    result <- list(mode = "full_trait", output_file = output_file)
+
   } else if (mode == "evaluate") {
-    # Module 2: Single adaptive QST evaluation
+    # Design Module: Single adaptive QST evaluation
     # Input: QST value, ratioVext_arg: V_E/V_G ratio
     
     qst_value <- as.numeric(input)
@@ -1081,12 +1572,12 @@ if (!interactive() && Sys.getenv("QST_ABC_SOURCE_ONLY", "") != "1") {
         mode = "evaluate",
         true_qst = qst_value,
         ve_ratio = ve_ratio,
-        estimated_qst = qst_estimate
+        estimated_qst = qst_estimate$qst
       )
     }
     
   } else if (mode == "batch_evaluate") {
-    # Module 2: Batch adaptive QST evaluation
+    # Design Module: Batch adaptive QST evaluation
     # Input format: "n_repeats_qst_value" OR "start_id_n_repeats_qst_value" (using underscore separator)
     # ratioVext_arg: V_E/V_G ratio
     
@@ -1135,12 +1626,16 @@ if (!interactive() && Sys.getenv("QST_ABC_SOURCE_ONLY", "") != "1") {
     stop("Unknown mode: ", mode)
   }
   
-  save(result, file = output_file)
+  if (mode != "full_trait") {
+    save(result, file = output_file)
+  }
   
   end_time <- Sys.time()
   elapsed_mins <- as.numeric(difftime(end_time, start_time, units = "mins"))
   
-  if (mode == "batch_neutral") {
+  if (mode == "full_trait") {
+    cat("Fused full_trait complete; result CSV:", output_file, "\n")
+  } else if (mode == "batch_neutral") {
     n_valid <- sum(!is.na(result$results$qst))
     cat("Batch complete:", n_valid, "/", result$n_fst, "valid QST estimates\n")
     cat("Average time per FST:", round(elapsed_mins * 60 / result$n_fst, 2), "seconds\n")

@@ -1,35 +1,45 @@
 #!/usr/bin/env Rscript
-# Prepare observed summary statistics for a trait
-# This generates the obs_stats needed for ABC estimation
+# Prepare observed summary statistics for a trait (Batch & Single trait optimized version)
 #
 # Usage:
+#   Rscript prepare_obs_stats.R --batch <sample_structure_csv> <trait_values_csv> <list_file> <results_dir> <summary_tsv>
 #   Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file] [ratioVext_file]
-#
-# Arguments:
-#   1. sample_structure_csv: Path to sample structure CSV
-#   2. trait_values_csv: Path to trait values CSV
-#   3. trait_id: Trait ID to process
-#   4. output_file: Path to save obs_stats RData
-#   5. ext_sd_file: (optional) Path to save ext_sd value as text
-#   6. ratioVext_file: (optional) Path to save V_E/V_G (ratioVext) for batch_neutral ABC jobs
-
-# No additional libraries needed - only base R functions used
 
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) < 4) {
-  cat("Usage: Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file] [ratioVext_file]\n")
+if (length(args) == 0) {
+  cat("Usage:\n")
+  cat("  Rscript prepare_obs_stats.R --batch <sample_structure_csv> <trait_values_csv> <list_file> <results_dir> <summary_tsv>\n")
+  cat("  Rscript prepare_obs_stats.R <sample_structure_csv> <trait_values_csv> <trait_id> <output_file> [ext_sd_file] [ratioVext_file]\n")
   quit(status = 1)
 }
 
-sample_structure_path <- args[1]
-trait_values_path <- args[2]
-trait_id <- args[3]
-output_file <- args[4]
-ext_sd_file <- if (length(args) >= 5) args[5] else NULL
-ratioVext_file <- if (length(args) >= 6) args[6] else NULL
+is_batch <- args[1] == "--batch"
 
-# Read sample structure
+if (is_batch) {
+  if (length(args) < 6) {
+    cat("Error: Batch mode requires 5 arguments after --batch\n")
+    quit(status = 1)
+  }
+  sample_structure_path <- args[2]
+  trait_values_path <- args[3]
+  list_file_path <- args[4]
+  results_dir <- args[5]
+  summary_tsv_path <- args[6]
+} else {
+  if (length(args) < 4) {
+    cat("Error: Single mode requires at least 4 arguments\n")
+    quit(status = 1)
+  }
+  sample_structure_path <- args[1]
+  trait_values_path <- args[2]
+  trait_id_single <- args[3]
+  output_file_single <- args[4]
+  ext_sd_file_single <- if (length(args) >= 5) args[5] else NULL
+  ratioVext_file_single <- if (length(args) >= 6) args[6] else NULL
+}
+
+# 1. Read sample structure
 sample_structure <- read.csv(sample_structure_path)
 
 # Determine sample structure parameters
@@ -38,114 +48,182 @@ num_ind <- length(unique(sample_structure$strain[sample_structure$population == 
 num_rep <- length(unique(sample_structure$replicate[sample_structure$population == 1 & 
                                                       sample_structure$strain == 1]))
 
-# Read trait values
-trait_values <- read.csv(trait_values_path)
+# Factors for grouping
+pop_factor <- factor(sample_structure$population)
+line_factor <- factor(paste0(sample_structure$population, "_", sample_structure$strain))
+rep_factor <- factor(sample_structure$replicate)
 
-# Find the trait row
-trait_row <- trait_values[trait_values$trait_id == trait_id, ]
-if (nrow(trait_row) == 0) {
-  stop(paste("Trait ID not found:", trait_id))
-}
+pop_levels <- levels(pop_factor)
+line_levels <- levels(line_factor)
 
-# Extract chromosome info
-chr <- as.character(trait_row$chr)
+# Degrees of freedom
+DF_among <- num_pop - 1
+DF_within <- num_pop * (num_ind - 1)
+DF_residual <- num_pop * num_ind * (num_rep - 1)
 
-# Extract trait values (columns 3 onwards are sample values)
-values <- as.numeric(trait_row[, 3:ncol(trait_row)])
+# Pre-map population to each line (since each line belongs to exactly one pop)
+line_to_pop <- sapply(line_levels, function(l) {
+  as.character(pop_factor[line_factor == l][1])
+})
 
-# Build data frame matching sample structure
-data <- data.frame(
-  trait = values,
-  pop = factor(sample_structure$population),
-  line = factor(paste0(sample_structure$population, "_", sample_structure$strain)),
-  rep = factor(sample_structure$replicate)
-)
+# 2. Read trait values
+trait_values <- read.csv(trait_values_path, check.names = FALSE)
 
-# Calculate variance components
-calc_variance_components_mom <- function(data, num_pop, num_ind, num_rep) {
-  overall_mean <- mean(data$trait)
-  pop_means <- tapply(data$trait, data$pop, mean)
-  line_means <- tapply(data$trait, data$line, mean)
+# Filter trait list to process
+if (is_batch) {
+  # Read list file
+  trait_ids <- readLines(list_file_path)
+  trait_ids <- trait_ids[nzchar(trait_ids)]
   
-  SS_among <- sum((pop_means - overall_mean)^2) * num_ind * num_rep
-  SS_within <- sum((line_means - rep(pop_means, each = num_ind))^2) * num_rep
-  SS_residual <- sum((data$trait - rep(line_means, each = num_rep))^2)
-  
-  DF_among <- num_pop - 1
-  DF_within <- num_pop * (num_ind - 1)
-  DF_residual <- num_pop * num_ind * (num_rep - 1)
-  
-  MS_among <- SS_among / DF_among
-  MS_within <- SS_within / DF_within
-  MS_residual <- SS_residual / DF_residual
-  
-  var_among <- max((MS_among - MS_within) / (num_ind * num_rep), 0)
-  var_within <- max((MS_within - MS_residual) / num_rep, 0)
-  var_residual <- max(MS_residual, 0)
-  
-  return(list(var_among = var_among, var_within = var_within, var_residual = var_residual))
-}
-
-# Calculate summary statistics
-variance_components <- calc_variance_components_mom(data, num_pop, num_ind, num_rep)
-among_pop_var <- variance_components$var_among
-within_pop_var <- variance_components$var_within
-ext_var <- variance_components$var_residual
-
-total_genetic <- among_pop_var + within_pop_var
-total_var <- among_pop_var + within_pop_var + ext_var
-
-if (total_genetic == 0) {
-  QST <- 0
-  ratioVext <- 0
+  # Filter rows in trait_values
+  trait_rows <- trait_values[trait_values$trait_id %in% trait_ids, , drop = FALSE]
 } else {
-  QST <- among_pop_var / (among_pop_var + 2 * within_pop_var)
-  ratioVext <- ext_var / total_genetic
-}
-F_among_pop <- if (total_genetic == 0 || within_pop_var == 0) 0 else among_pop_var / within_pop_var
-F_within_pop <- if (total_genetic == 0 || ext_var == 0) 0 else within_pop_var / ext_var
-ratioVbetweenVext <- if (ext_var == 0) 0 else among_pop_var / ext_var
-ratioVbetweenVtotal <- if (total_var == 0) 0 else among_pop_var / total_var
-ratioVwithinVtotal <- if (total_var == 0) 0 else within_pop_var / total_var
-ratioVextVtotal <- if (total_var == 0) 0 else ext_var / total_var
-
-obs_stats <- c(
-  among_pop_sd = sqrt(among_pop_var),
-  within_pop_sd = sqrt(within_pop_var),
-  ext_sd = sqrt(ext_var),
-  QST = QST,
-  ratioVext = ratioVext,
-  F_among_pop = F_among_pop,
-  F_within_pop = F_within_pop,
-  ratioVbetweenVext = ratioVbetweenVext,
-  ratioVbetweenVtotal = ratioVbetweenVtotal,
-  ratioVwithinVtotal = ratioVwithinVtotal,
-  ratioVextVtotal = ratioVextVtotal
-)
-
-# Also save metadata
-trait_meta <- list(
-  trait_id = trait_id,
-  chr = chr,
-  num_pop = num_pop,
-  num_ind = num_ind,
-  num_rep = num_rep
-)
-
-save(obs_stats, trait_meta, file = output_file)
-cat("Trait:", trait_id, "\n")
-cat("Chr:", chr, "\n")
-cat("Obs stats saved to:", output_file, "\n")
-cat("ratioVext:", obs_stats['ratioVext'], "\n")
-cat("among_pop_sd:", obs_stats['among_pop_sd'], "\n")
-
-if (!is.null(ext_sd_file)) {
-  writeLines(as.character(obs_stats['ext_sd']), ext_sd_file)
-  cat("ext_sd saved to:", ext_sd_file, "\n")
+  trait_rows <- trait_values[trait_values$trait_id == trait_id_single, , drop = FALSE]
+  if (nrow(trait_rows) == 0) {
+    stop(paste("Trait ID not found:", trait_id_single))
+  }
 }
 
-if (!is.null(ratioVext_file)) {
-  writeLines(as.character(obs_stats['ratioVext']), ratioVext_file)
-  cat("ratioVext saved to:", ratioVext_file, "\n")
+if (nrow(trait_rows) == 0) {
+  cat("No traits found to process.\n")
+  if (is_batch) {
+    # Write empty summary tsv
+    writeLines(character(0), summary_tsv_path)
+  }
+  quit(status = 0)
 }
 
+# Extract chromosomes and values matrix
+chrs <- as.character(trait_rows$chr)
+trait_ids_processed <- as.character(trait_rows$trait_id)
+Y <- as.matrix(trait_rows[, 3:ncol(trait_rows), drop = FALSE])
+storage.mode(Y) <- "double"
+
+# 3. Vectorized ANOVA calculations for all genes in Y
+overall_mean <- rowMeans(Y)
+
+pop_means <- matrix(0, nrow = nrow(Y), ncol = length(pop_levels))
+colnames(pop_means) <- pop_levels
+for (p in pop_levels) {
+  pop_means[, p] <- rowMeans(Y[, pop_factor == p, drop = FALSE])
+}
+
+line_means <- matrix(0, nrow = nrow(Y), ncol = length(line_levels))
+colnames(line_means) <- line_levels
+for (l in line_levels) {
+  line_means[, l] <- rowMeans(Y[, line_factor == l, drop = FALSE])
+}
+
+# Expand to full dimensions for sum of squares
+pop_means_exp_samples <- pop_means[, as.character(pop_factor), drop = FALSE]
+pop_means_exp_lines <- pop_means[, line_to_pop, drop = FALSE]
+line_means_exp_samples <- line_means[, as.character(line_factor), drop = FALSE]
+
+SS_among <- rowSums((pop_means_exp_samples - overall_mean)^2)
+SS_within <- rowSums((line_means_exp_samples - pop_means_exp_samples)^2)
+SS_residual <- rowSums((Y - line_means_exp_samples)^2)
+
+SS_total <- rowSums((Y - overall_mean)^2)
+MS_total <- SS_total / max(num_pop * num_ind * num_rep - 1L, 1L)
+# module1_F3: F3 ridge floor (matches sandbox ABC FLOOR_POLICY=F3, alpha=0.1)
+tf <- ifelse(MS_total > 0, 1e-8 * MS_total, 1e-8)
+alpha_floor <- 0.1
+
+MS_among <- SS_among / DF_among
+MS_within <- SS_within / DF_within
+MS_residual <- SS_residual / DF_residual
+
+var_among_raw <- (MS_among - MS_within) / (num_ind * num_rep)
+var_within_raw <- (MS_within - MS_residual) / num_rep
+var_residual <- pmax(MS_residual, 0)
+
+noise_among <- MS_within / (num_ind * num_rep)
+noise_within <- MS_residual / num_rep
+lam_a <- pmax(alpha_floor * noise_among, tf)
+lam_w <- pmax(alpha_floor * noise_within, tf)
+var_among <- sqrt(pmax(var_among_raw, 0)^2 + lam_a^2)
+var_within <- sqrt(pmax(var_within_raw, 0)^2 + lam_w^2)
+var_residual <- pmax(MS_residual, 0)
+
+both_var_negative <- rep(FALSE, length(var_among_raw))
+
+# Scale statistics
+total_genetic <- (var_among + 2 * var_within) / 2
+total_var <- total_genetic + var_residual
+
+qst_denom <- var_among + 2 * var_within
+QST <- ifelse(qst_denom == 0, 0, var_among / qst_denom)
+ratioVext <- ifelse(total_genetic == 0, 0, var_residual / total_genetic)
+
+F_among_pop <- ifelse(total_genetic == 0 | var_within == 0, 0, var_among / var_within)
+F_within_pop <- ifelse(total_genetic == 0 | var_residual == 0, 0, var_within / var_residual)
+ratioVbetweenVext <- ifelse(var_residual == 0, 0, var_among / var_residual)
+ratioVbetweenVtotal <- ifelse(total_var == 0, 0, var_among / total_var)
+ratioVwithinVtotal <- ifelse(total_var == 0, 0, var_within / total_var)
+ratioVextVtotal <- ifelse(total_var == 0, 0, var_residual / total_var)
+
+# Pre-allocate output variables/structures
+summary_rows <- character(nrow(Y))
+
+# 4. Save individual RData files
+for (i in seq_len(nrow(Y))) {
+  trait_id <- trait_ids_processed[i]
+  chr <- chrs[i]
+  
+  obs_stats <- c(
+    among_pop_sd = as.numeric(sqrt(var_among[i])),
+    within_pop_sd = as.numeric(sqrt(var_within[i])),
+    ext_sd = as.numeric(sqrt(var_residual[i])),
+    QST = as.numeric(QST[i]),
+    ratioVext = as.numeric(ratioVext[i]),
+    F_among_pop = as.numeric(F_among_pop[i]),
+    F_within_pop = as.numeric(F_within_pop[i]),
+    ratioVbetweenVext = as.numeric(ratioVbetweenVext[i]),
+    ratioVbetweenVtotal = as.numeric(ratioVbetweenVtotal[i]),
+    ratioVwithinVtotal = as.numeric(ratioVwithinVtotal[i]),
+    ratioVextVtotal = as.numeric(ratioVextVtotal[i]),
+    both_var_negative = as.numeric(both_var_negative[i])
+  )
+  
+  trait_meta <- list(
+    trait_id = trait_id,
+    chr = chr,
+    num_pop = num_pop,
+    num_ind = num_ind,
+    num_rep = num_rep
+  )
+  
+  if (is_batch) {
+    trait_dir <- file.path(results_dir, paste0("trait_", trait_id))
+    dir.create(trait_dir, showWarnings = FALSE, recursive = TRUE)
+    output_file <- file.path(trait_dir, paste0(trait_id, "_obs_stats.RData"))
+    
+    summary_rows[i] <- paste(trait_id, ratioVext[i], sep = "\t")
+  } else {
+    output_file <- output_file_single
+  }
+  
+  save(obs_stats, trait_meta, file = output_file)
+}
+
+# 5. Output summary TSV or auxiliary files
+if (is_batch) {
+  writeLines(summary_rows, summary_tsv_path)
+  cat("Batch processing complete. Summary saved to:", summary_tsv_path, "\n")
+} else {
+  cat("Trait:", trait_id_single, "\n")
+  cat("Chr:", chrs[1], "\n")
+  cat("Obs stats saved to:", output_file_single, "\n")
+  cat("ratioVext:", ratioVext[1], "\n")
+  cat("among_pop_sd:", sqrt(var_among[1]), "\n")
+  
+  if (!is.null(ext_sd_file_single)) {
+    writeLines(as.character(sqrt(var_residual[1])), ext_sd_file_single)
+    cat("ext_sd saved to:", ext_sd_file_single, "\n")
+  }
+  
+  if (!is.null(ratioVext_file_single)) {
+    writeLines(as.character(ratioVext[1]), ratioVext_file_single)
+    cat("ratioVext saved to:", ratioVext_file_single, "\n")
+  }
+}

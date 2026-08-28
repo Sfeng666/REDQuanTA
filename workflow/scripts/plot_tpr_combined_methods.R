@@ -1,7 +1,5 @@
 #!/usr/bin/env Rscript
-# TPR plot: same style as reference TPR_plot_combined.pdf
-# - ABC lines from perf_eval combo 'QST, F_within_pop'
-# - ANOVA and ANOVA without replication from reference eval_performance_detect_adaptive_qst/data/output
+# TPR plot: ABC (Design Module REDQuanTEA) vs aligned ANOVA / ANOVA without replication.
 # Outputs: combined (2-panel), autosomes-only, chrX-only; full ratios and subset (0.1, 1, 10).
 
 suppressPackageStartupMessages({
@@ -33,81 +31,112 @@ theme_publication <- function(base_size = 11) {
     )
 }
 
-# V_E/V_G ratios: 5 values matching reference (1e-02 to 1e+02)
 RATIOS_FULL <- c("1e-02", "1e-01", "1e+00", "1e+01", "1e+02")
+RATIOS_FULL_LABELS <- c("0.01", "0.1", "1", "10", "100")
 RATIOS_SUBSET <- c("1e-01", "1e+00", "1e+01")
 RATIOS_SUBSET_LABELS <- c("0.1", "1", "10")
 
-# Paths: assume run from repo root or from code/
-find_paths <- function() {
-  wd <- getwd()
-  if (dir.exists(file.path(wd, "htcondor"))) {
-    code_dir <- wd
-    repo_root <- dirname(wd)
-  } else {
-    repo_root <- wd
-    code_dir <- file.path(repo_root, "code")
-  }
-  perf_eval <- file.path(code_dir, "chtc", "results", "perf_eval")
-  ref_out <- file.path(code_dir, "reference", "eval_performance_detect_adaptive_qst", "data", "output")
-  list(perf_eval = perf_eval, ref_out = ref_out)
-}
-paths <- find_paths()
-PERF_EVAL_DIR <- paths$perf_eval
-REF_OUTPUT <- paths$ref_out
-ANOVA_DIR <- file.path(REF_OUTPUT, "ANOVA_estimate", "generate_simulated_params_sumstats_pairedpriorsampling10-3to10_uniformprior_sampleF1_samplestr3x6_simx100000")
-ANOVA_NOREP_DIR <- file.path(REF_OUTPUT, "ANOVA_estimate_withoutrep", "generate_simulated_params_sumstats_pairedpriorsampling10-3to10_uniformprior_sampleF1_samplestr3x6_simx100000_withoutrep")
+MAP_ABC_TO_SCI <- c(
+  "VEratio_0.01" = "1e-02", "VEratio_0.1" = "1e-01", "VEratio_1" = "1e+00",
+  "VEratio_10" = "1e+01", "VEratio_100" = "1e+02"
+)
 
-get_tpr_df_anova <- function(path_matrix, v_ratios) {
-  df <- read.table(path_matrix, header = TRUE, sep = "\t", row.names = 1, stringsAsFactors = FALSE, check.names = FALSE)
-  df <- df[!grepl("mean_adaptive|neutral", rownames(df)), ]
-  df <- df[, colnames(df) %in% v_ratios, drop = FALSE]
-  df$adaptive_QST_level <- as.numeric(gsub("adaptive_", "", rownames(df)))
-  rownames(df) <- NULL
-  df
-}
-
-get_tpr_df_abc <- function(path_csv, v_ratios) {
-  # ABC CSV: type, VEratio_0.01, VEratio_0.1, VEratio_1, VEratio_10, VEratio_100
-  # Map to 1e-02, 1e-01, 1e+00, 1e+01, 1e+02
-  map_abc_to_sci <- c(
-    "VEratio_0.01" = "1e-02", "VEratio_0.1" = "1e-01", "VEratio_1" = "1e+00",
-    "VEratio_10" = "1e+01", "VEratio_100" = "1e+02"
-  )
+get_tpr_df_csv <- function(path_csv, v_ratios) {
   df <- read.csv(path_csv, stringsAsFactors = FALSE)
   tpr_rows <- df[grepl("^QST_", df$type), ]
   adaptive <- as.numeric(gsub("QST_", "", tpr_rows$type))
   out <- data.frame(adaptive_QST_level = adaptive)
-  for (col in names(map_abc_to_sci)) {
-    sci <- map_abc_to_sci[col]
-    if (col %in% colnames(tpr_rows) && sci %in% v_ratios)
+  for (col in names(MAP_ABC_TO_SCI)) {
+    sci <- MAP_ABC_TO_SCI[col]
+    if (col %in% colnames(tpr_rows) && sci %in% v_ratios) {
       out[[sci]] <- tpr_rows[[col]]
+    }
   }
-  out <- out[, c("adaptive_QST_level", intersect(v_ratios, names(out))), drop = FALSE]
-  out
+  out[, c("adaptive_QST_level", intersect(v_ratios, names(out))), drop = FALSE]
 }
 
-get_plot_data_one_chr <- function(chr, v_ratios) {
+resolve_paths <- function(args) {
+  wd <- getwd()
+  plots_dir <- if (length(args) >= 1) args[1] else file.path(wd, "plots")
+  abc_perf_dir <- if (length(args) >= 2) args[2] else file.path(wd, "module2_original")
+  anova_perf_dir <- if (length(args) >= 3) args[3] else file.path(abc_perf_dir, "anova")
+  anova_norep_perf_dir <- if (length(args) >= 4) args[4] else file.path(abc_perf_dir, "anova_norep")
+  abc_combo_suffix <- if (length(args) >= 5) args[5] else "QST_F_within_pop"
+  output_tag <- if (length(args) >= 6) args[6] else "QST_Fwithin_pop"
+  detector_suffix <- trimws(Sys.getenv("PERF_EVAL_DETECTOR_SUFFIX", ""))
+  list(
+    plots_dir = plots_dir,
+    abc_perf_dir = abc_perf_dir,
+    anova_perf_dir = anova_perf_dir,
+    anova_norep_perf_dir = anova_norep_perf_dir,
+    abc_combo_suffix = abc_combo_suffix,
+    output_tag = output_tag,
+    detector_suffix = detector_suffix
+  )
+}
+
+resolve_abc_matrix_path <- function(chr_file, paths) {
+  det <- paths$detector_suffix
+  suffix <- paths$abc_combo_suffix
+  prefix <- if (nzchar(det)) {
+    paste0("tpr_fpr_matrix_", chr_file, det, "_")
+  } else {
+    paste0("tpr_fpr_matrix_", chr_file, "_")
+  }
+  chr_dir <- file.path(paths$abc_perf_dir, chr_file)
+
+  # Prefer ranking lookup: "best", model name, or already a combo_XXXX id
+  ranking <- file.path(chr_dir, paste0(prefix, "model_ranking.csv"))
+  if (file.exists(ranking)) {
+    rk <- read.csv(ranking, stringsAsFactors = FALSE)
+    combo_id <- NULL
+    if (identical(suffix, "best") || !nzchar(suffix)) {
+      combo_id <- rk$model_id[1]
+    } else if (grepl("^combo_[0-9]+$", suffix)) {
+      combo_id <- suffix
+    } else {
+      hit <- which(rk$model == suffix | rk$model == gsub("_", ",", suffix, fixed = TRUE))
+      if (length(hit)) combo_id <- rk$model_id[hit[1]]
+    }
+    if (!is.null(combo_id)) {
+      candidate <- file.path(chr_dir, paste0(prefix, combo_id, ".csv"))
+      if (file.exists(candidate)) return(candidate)
+    }
+  }
+
+  direct <- file.path(chr_dir, paste0(prefix, suffix, ".csv"))
+  if (file.exists(direct)) return(direct)
+  for (alt in c("QST_F_within_pop", "QST,F_within_pop", "combo_0001")) {
+    candidate <- file.path(chr_dir, paste0(prefix, alt, ".csv"))
+    if (file.exists(candidate)) return(candidate)
+  }
+  NA_character_
+}
+
+get_plot_data_one_chr <- function(chr, v_ratios, paths) {
   chr_file <- if (chr == "autosomes") "autosomes" else "chrX"
-  # ABC: QST, F_within_pop
-  abc_path <- file.path(PERF_EVAL_DIR, chr_file, paste0("tpr_fpr_matrix_", chr_file, "_QST_F_within_pop.csv"))
-  # ANOVA
-  anova_path <- file.path(ANOVA_DIR, paste0("matrix_tpr_fpr_", chr_file, ".txt"))
-  anova_norep_path <- file.path(ANOVA_NOREP_DIR, paste0("matrix_tpr_fpr_", chr_file, ".txt"))
+  abc_path <- resolve_abc_matrix_path(chr_file, paths)
+  anova_path <- file.path(paths$anova_perf_dir, chr_file, paste0("tpr_fpr_matrix_", chr_file, "_ANOVA.csv"))
+  anova_norep_path <- file.path(paths$anova_norep_perf_dir, chr_file, paste0("tpr_fpr_matrix_", chr_file, "_ANOVA_norep.csv"))
 
   dfs <- list()
-  if (file.exists(abc_path)) {
-    d_abc <- get_tpr_df_abc(abc_path, v_ratios)
+  if (!is.na(abc_path) && file.exists(abc_path)) {
+    d_abc <- get_tpr_df_csv(abc_path, v_ratios)
+    # Always label as ABC so it matches the plot legend factor levels
+    # (ABC vs ANOVA vs ANOVA without replication).
     d_abc$method <- "ABC"
+    message("ABC matrix (", chr_file, "): ", basename(abc_path))
     dfs <- c(dfs, list(d_abc))
+  } else {
+    warning("ABC TPR matrix not found for ", chr_file)
   }
   if (file.exists(anova_path)) {
-    d_anova <- get_tpr_df_anova(anova_path, v_ratios)
+    d_anova <- get_tpr_df_csv(anova_path, v_ratios)
     d_anova$method <- "ANOVA"
     dfs <- c(dfs, list(d_anova))
   }
   if (file.exists(anova_norep_path)) {
-    d_norep <- get_tpr_df_anova(anova_norep_path, v_ratios)
+    d_norep <- get_tpr_df_csv(anova_norep_path, v_ratios)
     d_norep$method <- "ANOVA\nwithout replication"
     dfs <- c(dfs, list(d_norep))
   }
@@ -125,10 +154,8 @@ get_plot_data_one_chr <- function(chr, v_ratios) {
   long
 }
 
-create_combined_plot <- function(df_auto, df_x, v_ratios, ratio_labels, output_path, title_suffix = "") {
-  # Match line_plot_TPR_performance.Rmd: same expressions, linewidth 0.7, point size 1.5, stroke 0.3
+create_combined_plot <- function(df_auto, df_x, v_ratios, ratio_labels, output_path) {
   main_title <- expression(bold("Power to detect adaptive " * Q[ST] * " across methods and levels of extrinsic variance"))
-  # title_suffix unused for combined; main_title is expression for draw_label
 
   p_autosomes <- ggplot(df_auto, aes(x = adaptive_QST_level, y = TPR,
     color = V_env_ratio, linetype = method, group = interaction(method, V_env_ratio))) +
@@ -136,7 +163,9 @@ create_combined_plot <- function(df_auto, df_x, v_ratios, ratio_labels, output_p
     geom_point(size = 1.5, stroke = 0.3) +
     scale_color_viridis_d(option = "plasma", begin = 0.1, end = 0.9, labels = ratio_labels,
       name = expression(V[E] * " / " * V[G])) +
-    scale_linetype_manual(values = c("solid", "dashed", "dotted"), name = expression(Q[ST] * " method")) +
+    scale_linetype_manual(
+      values = c("ABC" = "solid", "ANOVA" = "dashed", "ANOVA\nwithout replication" = "dotted"),
+      name = expression(Q[ST] * " method")) +
     labs(title = "Autosomes", x = NULL, y = "True Positive Rate (Power)") +
     ylim(0, 1) +
     theme_publication(base_size = 10) +
@@ -149,7 +178,9 @@ create_combined_plot <- function(df_auto, df_x, v_ratios, ratio_labels, output_p
     geom_point(size = 1.5, stroke = 0.3) +
     scale_color_viridis_d(option = "plasma", begin = 0.1, end = 0.9, labels = ratio_labels,
       name = expression(V[E] * " / " * V[G])) +
-    scale_linetype_manual(values = c("solid", "dashed", "dotted"), name = expression(Q[ST] * " method")) +
+    scale_linetype_manual(
+      values = c("ABC" = "solid", "ANOVA" = "dashed", "ANOVA\nwithout replication" = "dotted"),
+      name = expression(Q[ST] * " method")) +
     guides(linetype = guide_legend(keywidth = unit(1.5, "lines"))) +
     labs(title = "X chromosome", x = expression(bold("Adaptive " * Q[ST] * " level")),
       y = "True Positive Rate (Power)") +
@@ -168,15 +199,14 @@ create_combined_plot <- function(df_auto, df_x, v_ratios, ratio_labels, output_p
 }
 
 create_single_plot <- function(df, chr_label, v_ratios, ratio_labels, output_path) {
-  # Match line_plot_TPR_performance.Rmd section 6: linewidth 0.8, point 1.8, stroke 0.4, base_size 11
-  # Legend names bold; linetype legend "Q_ST estimation method"; title/subtitle/x as in Rmd
   p <- ggplot(df, aes(x = adaptive_QST_level, y = TPR, color = V_env_ratio, linetype = method,
     group = interaction(method, V_env_ratio))) +
     geom_line(linewidth = 0.8) +
     geom_point(size = 1.8, stroke = 0.4) +
     scale_color_viridis_d(option = "plasma", begin = 0.1, end = 0.9, labels = ratio_labels,
       name = expression(bold(V[E] * " / " * V[G]))) +
-    scale_linetype_manual(values = c("solid", "dashed", "dotted"),
+    scale_linetype_manual(
+      values = c("ABC" = "solid", "ANOVA" = "dashed", "ANOVA\nwithout replication" = "dotted"),
       name = expression(bold(Q[ST] * " estimation method"))) +
     labs(
       title = expression(bold("Power to detect adaptive " * Q[ST] * " across methods and levels of extrinsic variance")),
@@ -192,36 +222,37 @@ create_single_plot <- function(df, chr_label, v_ratios, ratio_labels, output_pat
 
 main <- function() {
   args <- commandArgs(trailingOnly = TRUE)
-  output_dir <- REF_OUTPUT
-  if (length(args) >= 1) output_dir <- args[1]
-  if (length(args) >= 2) PERF_EVAL_DIR <- args[2]
-  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+  paths <- resolve_paths(args)
+  dir.create(paths$plots_dir, showWarnings = FALSE, recursive = TRUE)
 
-  # Full ratios
-  df_auto <- get_plot_data_one_chr("autosomes", RATIOS_FULL)
-  df_x <- get_plot_data_one_chr("chrX", RATIOS_FULL)
+  df_auto <- get_plot_data_one_chr("autosomes", RATIOS_FULL, paths)
+  df_x <- get_plot_data_one_chr("chrX", RATIOS_FULL, paths)
   if (is.null(df_auto) || is.null(df_x)) {
-    message("Missing ABC or ANOVA data; check PERF_EVAL_DIR and REF_OUTPUT paths.")
+    message("Missing ABC or aligned ANOVA data.")
+    message("ABC dir: ", paths$abc_perf_dir)
+    message("ANOVA dir: ", paths$anova_perf_dir)
+    message("ANOVA norep dir: ", paths$anova_norep_perf_dir)
     quit(status = 1)
   }
-  create_combined_plot(df_auto, df_x, RATIOS_FULL, RATIOS_FULL,
-    file.path(output_dir, "TPR_plot_combined_ABC_QST_Fwithin_pop.pdf"))
-  create_single_plot(df_auto, "Autosomes", RATIOS_FULL, RATIOS_FULL,
-    file.path(output_dir, "TPR_plot_autosomes_ABC_QST_Fwithin_pop.pdf"))
-  create_single_plot(df_x, "X chromosome", RATIOS_FULL, RATIOS_FULL,
-    file.path(output_dir, "TPR_plot_chrX_ABC_QST_Fwithin_pop.pdf"))
 
-  # Subset: 0.1, 1, 10 only
-  df_auto_s <- get_plot_data_one_chr("autosomes", RATIOS_SUBSET)
-  df_x_s <- get_plot_data_one_chr("chrX", RATIOS_SUBSET)
+  tag <- paths$output_tag
+  create_combined_plot(df_auto, df_x, RATIOS_FULL, RATIOS_FULL_LABELS,
+    file.path(paths$plots_dir, paste0("TPR_plot_combined_ABC_", tag, ".pdf")))
+  create_single_plot(df_auto, "Autosomes", RATIOS_FULL, RATIOS_FULL_LABELS,
+    file.path(paths$plots_dir, paste0("TPR_plot_autosomes_ABC_", tag, ".pdf")))
+  create_single_plot(df_x, "X chromosome", RATIOS_FULL, RATIOS_FULL_LABELS,
+    file.path(paths$plots_dir, paste0("TPR_plot_chrX_ABC_", tag, ".pdf")))
+
+  df_auto_s <- get_plot_data_one_chr("autosomes", RATIOS_SUBSET, paths)
+  df_x_s <- get_plot_data_one_chr("chrX", RATIOS_SUBSET, paths)
   create_combined_plot(df_auto_s, df_x_s, RATIOS_SUBSET, RATIOS_SUBSET_LABELS,
-    file.path(output_dir, "TPR_plot_combined_ABC_QST_Fwithin_pop_VEVG_subset.pdf"))
+    file.path(paths$plots_dir, paste0("TPR_plot_combined_ABC_", tag, "_VEVG_subset.pdf")))
   create_single_plot(df_auto_s, "Autosomes", RATIOS_SUBSET, RATIOS_SUBSET_LABELS,
-    file.path(output_dir, "TPR_plot_autosomes_ABC_QST_Fwithin_pop_VEVG_subset.pdf"))
+    file.path(paths$plots_dir, paste0("TPR_plot_autosomes_ABC_", tag, "_VEVG_subset.pdf")))
   create_single_plot(df_x_s, "X chromosome", RATIOS_SUBSET, RATIOS_SUBSET_LABELS,
-    file.path(output_dir, "TPR_plot_chrX_ABC_QST_Fwithin_pop_VEVG_subset.pdf"))
+    file.path(paths$plots_dir, paste0("TPR_plot_chrX_ABC_", tag, "_VEVG_subset.pdf")))
 
-  message("Plots saved to ", output_dir)
+  message("Plots saved to ", paths$plots_dir)
 }
 
 main()

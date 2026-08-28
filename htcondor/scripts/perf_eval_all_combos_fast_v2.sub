@@ -1,11 +1,11 @@
-# HTCondor submit file for fast all-combo perf-eval cells (v2 vectorized; REDQuanTA).
+# HTCondor submit file for fast all-combo perf-eval cells (v2 vectorized; REDQuanTEA).
 
 universe = vanilla
-executable = $(dir_scripts)/run_perf_eval_all_combos_fast_cell_v2.sh
+executable = $(dir_scripts)/run_perf_eval_cell.sh
 arguments = $(mode) $(worker_args)
 environment = "$(environment)"
 
-transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(dir_code)/perf_eval_all_combos_fast_cell_v2.R, $(dir_scripts)/run_perf_eval_all_combos_fast_cell_v2.sh, $(combos_file), $(r_env_tarball)$(extra_input_files)
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(dir_code)/perf_eval_all_combos_fast_cell_v2.R, $(dir_scripts)/run_perf_eval_cell.sh, $(combos_file), $(r_env_tarball)$(extra_input_files)
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 transfer_output_files = $(output_file)

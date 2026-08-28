@@ -40,5 +40,10 @@ Thumbs.db
 .idea/
 .vscode/
 
-# cursor agent chat history
+# cursor agent chat history and prompt dumps
 cursor_redquanta_repo_creation_on_CHTC.md
+.specstory/
+.cursor/
+.cursorindexingignore
+prompt.md
+prompt*.md

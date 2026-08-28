@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Plot TPR performance for performance evaluation (Module 2)
+# Plot TPR performance for performance evaluation (Design Module)
 # Generates line plots showing TPR across adaptive QST levels and V_E/V_G ratios
 # Uses cowplot for publication-ready two-panel layout
 #

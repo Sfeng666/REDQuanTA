@@ -22,7 +22,7 @@ get_script_dir <- function() {
   return(getwd())
 }
 script_dir <- get_script_dir()
-# workflow/scripts -> REDQuanTA repository root
+# workflow/scripts -> REDQuanTEA repository root
 project_root <- normalizePath(file.path(script_dir, "..", ".."))
 
 default_results_dir <- file.path(project_root, "results", "perf_eval")

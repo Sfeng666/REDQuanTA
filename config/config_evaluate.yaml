@@ -1,4 +1,4 @@
-# REDQuanTA Module 2 (Evaluate) Configuration - Reduced params for local testing
+# REDQuanTEA Design Module configuration (reduced params for local testing)
 # Snakemake config for performance evaluation
 
 # FST input options: "direct", "from_vcf", or "from_simulation"
@@ -24,6 +24,10 @@ num_neutral: 100         # Reduced from 10000
 num_sim: 100000          # ABC simulations per estimation
 batch_size: 50           # Reduced from 1000
 threshold_percentile: 0.95
+
+# Variance floor (F3 ridge; manuscript default)
+floor_policy: "F3"
+floor_alpha: 0.1
 
 # Summary statistics combinations to evaluate
 summary_stats_combos:

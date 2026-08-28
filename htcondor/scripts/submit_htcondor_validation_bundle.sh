@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# REDQuanTA HTCondor validation bundle (three batches, descending Condor priority).
+# REDQuanTEA HTCondor validation bundle (three batches, descending Condor priority).
 #
-# Prerequisites (clone REDQuanTA, conda env optional for local DAG generation):
+# Prerequisites (clone REDQuanTEA, conda env optional for local DAG generation):
 #   - Run from an HTCondor submit host (e.g. CHTC login node)
 #   - htcondor/env/r_env.tar.gz present (conda-pack; see README_details.md)
 #
@@ -10,7 +10,7 @@
 #   Batch 2 (trait QST detection, sanity-check aggregation): Priority 2000
 #   Batch 3 (2047-combo fast perf-eval): Priority 1000
 #
-# Trait input: populate REDQuanTA/data/example/trait_values.csv (see harmonizr_to_trait_values.py
+# Trait input: populate REDQuanTEA/data/example/trait_values.csv (see harmonizr_to_trait_values.py
 # + workflow/scripts/add_chromosome_info.py from repo root paths in docs below).
 
 set -euo pipefail
@@ -90,7 +90,7 @@ submit_dag() {
   condor_submit_dag -Force "-Priority" "$pri" "$dag"
 }
 
-echo "REDQuanTA root: $REDQUANTA"
+echo "REDQuanTEA root: $REDQUANTA"
 
 # ----- Batch 1: sample-structure comparison (matches code/run_sample_structure_comparison_QST_ratioVbetweenVtotal.sh) -----
 if [[ "$SKIP1" != true ]]; then
@@ -157,7 +157,7 @@ if [[ "$SKIP2" != true ]]; then
   submit_dag "$MASTER" "$P2"
 fi
 
-# ----- Batch 3: fast all-combo 2047 (REDQuanTA worker scripts) -----
+# ----- Batch 3: fast all-combo 2047 (REDQuanTEA worker scripts) -----
 if [[ "$SKIP3" != true ]]; then
   COMBO="$PERF_FAST_ROOT/combinations_all_nonempty_11stats.txt"
   if [[ ! -f "$COMBO" ]]; then

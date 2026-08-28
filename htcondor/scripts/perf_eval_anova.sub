@@ -1,0 +1,31 @@
+# HTCondor submit file for ANOVA mega-batch Design Module perf-eval.
+
+universe = vanilla
+executable = $(dir_scripts)/run_perf_eval_anova_megabatch.sh
+arguments = $(worker_args)
+environment = "$(environment)"
+
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(dir_code)/perf_eval_anova_megabatch.R, $(dir_code)/perf_eval_anova_norep_megabatch.R, $(dir_scripts)/run_perf_eval_anova_megabatch.sh, $(r_env_tarball)$(extra_input_files)
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT_OR_EVICT
+transfer_output_remaps = "$(output_remaps)"
+transfer_output_files = $(output_files)
+
+initialdir = $(outdir)
+log = $(job).log
+output = $(job).out
+error = $(job).err
+
+request_cpus = $(request_cpus)
+request_memory = $(request_memory)
+request_disk = 4GB
+
++JobDurationCategory = "Medium"
++LongJob = false
+periodic_release = (NumHolds < 20) && (HoldReasonCode == 12 || HoldReasonCode == 13 || HoldReasonCode == 21)
+
+want_campus_pools = true
+want_ospool = true
+requirements = (Target.OpSysMajorVer >= 7)
+
+queue

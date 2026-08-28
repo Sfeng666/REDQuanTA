@@ -1,4 +1,4 @@
-# REDQuanTA: Sample Structure Comparison Rules
+# REDQuanTEA: Sample Structure Comparison Rules
 SAMPLE_STRUCTS = config.get("sample_structures", [])
 COMPARISON_STATS = config.get("comparison_stats",
     config.get("summary_stats_combos", ["QST,ratioVbetweenVtotal"])[0])

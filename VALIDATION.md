@@ -1,108 +1,61 @@
-# REDQuanTA Validation Guide
+# REDQuanTEA validation
 
-This document explains how to validate the REDQuanTA workflow in different environments.
+## Local (Snakemake)
 
-## Validation Status
-
-**Note**: Docker is not available on the current CHTC submission node, so Docker-based validation must be performed on another system with Docker installed.
-
-## Option 1: Docker Validation (Recommended)
-
-### Build and Test
+Short smoke (2 traits, 2000 ABC simulations, tiny Design grid):
 
 ```bash
-# Build the Docker image
-docker build -t redquanta .
-
-# Test Module 1: Detect adaptive traits
-docker run -v $(pwd)/results:/app/results redquanta \
-    snakemake --configfile config/config_detect.yaml --cores 4
-
-# Test Module 2: Evaluate performance
-docker run -v $(pwd)/results:/app/results redquanta \
-    snakemake evaluate_all --configfile config/config_evaluate.yaml --cores 2
-
-# Check outputs
-ls -la results/detect/
-ls -la results/evaluate/
+conda activate redquantea
+bash scripts/validate_local.sh
 ```
 
-### Expected Outputs
+Expected Detection output: `results/detect_smoke/qst_results.csv`.
+Expected Design output: `results/evaluate_smoke/combined_model_ranking.csv` and `tpr_fpr_matrix_*.csv`.
 
-**Module 1:**
-- `results/detect/qst_results.csv` - Detection results for example traits
-
-**Module 2:**
-- `results/evaluate/*/tpr_fpr_matrix_*.csv` - TPR/FPR matrices
-- `results/evaluate/combined_model_ranking.csv` - Model ranking
-
-## Option 2: Local Conda Validation
-
-If Docker is not available, validate using conda:
+Fuller local configs (still reduced relative to CHTC):
 
 ```bash
-# Create and activate environment
-conda env create -f environment.yml
-conda activate redquanta
-
-# Run dry-run first
-snakemake --configfile config/config_detect.yaml --cores 4 -n
-
-# Run Module 1
 snakemake --configfile config/config_detect.yaml --cores 4
-
-# Run Module 2 (reduced parameters)
-snakemake evaluate_all --configfile config/config_evaluate.yaml --cores 2
+snakemake evaluate_all --configfile config/config_evaluate.yaml --cores 4
 ```
 
-## Option 3: HTCondor Validation
+`config/config_detect.yaml` uses `data/example/trait_values.csv`, which is the full example protein table. Use the smoke config on a laptop.
 
-For validating HTCondor mode on CHTC or similar systems:
+## HTCondor smoke
 
-### Module 1: Single Trait Test
+Generate only (`DRY_RUN=1`):
 
 ```bash
-# Generate DAG for single trait
-python htcondor/scripts/prepare_trait_dag.py \
-    --trait-id L0MQ04 \
-    --num-neutral 100 \
-    --batch-size 50 \
-    --sanity-check
+TRAIT_VALUES=data/example/trait_values_smoke.csv \
+RESULTS_DIR=results/detect_chtc_smoke \
+OUTPUT_DAG=results/dags/detect_smoke.dag \
+NUM_NEUTRAL=20 NUM_SIM=2000 MAX_TRAITS=2 BATCH_SIZE=20 DRY_RUN=1 \
+bash htcondor/scripts/submit_detection.sh
 
-# Submit DAG
-condor_submit_dag results/dags/trait_L0MQ04.dag
-
-# Monitor
-condor_watch_q
+printf 'QST\tratioVbetweenVtotal\n' > /tmp/combo.txt
+COMBO_FILE=/tmp/combo.txt \
+OUTPUT_DIR=results/design_chtc_smoke \
+NUM_REPEATS=20 NUM_NEUTRAL=20 BATCH_SIZE=20 NUM_SIM=2000 \
+CHR=autosomes DRY_RUN=1 \
+bash htcondor/scripts/submit_design.sh
 ```
 
-### Module 2: Minimal Test
+Set `DRY_RUN=0` to submit. After Detection jobs finish:
 
 ```bash
-# Generate minimal evaluation DAG
-python htcondor/scripts/prepare_perf_eval_dag.py \
-    --chr autosomes \
-    --num-repeats 100 \
-    --num-neutral 100 \
-    --batch-size 50 \
-    --adaptive-qst 0.75,1.00 \
-    --ve-ratios 1.0 \
-    --output-dir results/perf_eval_test
-
-# Submit
-condor_submit_dag results/perf_eval_test/perf_eval_autosomes.dag
+bash htcondor/scripts/aggregate_detection.sh results/detect_chtc_smoke
 ```
 
-## Troubleshooting
+After Design jobs finish, the DAG POST script writes `tpr_fpr_matrix_*.csv`. You can re-run:
 
-### Common Issues
+```bash
+bash workflow/scripts/run_aggregate_perf_eval_multicombo_fast.sh results/design_chtc_smoke
+```
 
-1. **Snakemake not found**: Ensure conda environment is activated
-2. **R package errors**: Run `Rscript -e "library(abc)"` to verify
-3. **Memory errors**: Reduce batch_size or num_sim in config
-4. **Missing input files**: Check paths in config files
+## Docker
 
-### Log Files
-
-- Snakemake logs: `results/*/logs/*.log`
-- HTCondor logs: `*.log`, `*.out`, `*.err` in output directories
+```bash
+docker build -t redquantea .
+docker run -v $(pwd)/results:/app/results redquantea \
+  snakemake --configfile config/config_detect_smoke.yaml --cores 2
+```

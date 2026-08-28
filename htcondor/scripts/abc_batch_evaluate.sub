@@ -1,4 +1,4 @@
-# HTCondor submit file for batch adaptive QST evaluation (Module 2)
+# HTCondor submit file for batch adaptive QST evaluation (Design Module)
 # Estimates QST for multiple simulated adaptive traits with known QST
 # Supports multiple summary stat combinations when combos_file is provided
 

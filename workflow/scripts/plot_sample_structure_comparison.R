@@ -81,8 +81,10 @@ load_data <- function(chr_name) {
       adaptive_rows <- grep("^QST_", rownames(data), value = TRUE)
       if (length(adaptive_rows) > 0) {
         adaptive_row <- adaptive_rows[length(adaptive_rows)]
-        tpr_values <- as.numeric(data[adaptive_row, ])
-        ratios <- colnames(data)
+        ratio_cols <- grep("^VEratio_", colnames(data), value = TRUE)
+        if (length(ratio_cols) == 0) next
+        tpr_values <- as.numeric(data[adaptive_row, ratio_cols, drop = TRUE])
+        ratios <- ratio_cols
 
         for (j in seq_along(tpr_values)) {
           results_list[[length(results_list) + 1]] <- data.frame(
@@ -122,9 +124,20 @@ df_results$chromosome <- factor(df_results$chromosome,
 cat("\nData summary:\n")
 print(head(df_results))
 
-df_results$ratio_label <- paste0("V[E]~'/'~V[G]~'='~'",
-                                 format(df_results$ratio_venv_vtotal_num,
-                                        scientific = TRUE, digits = 2), "'")
+format_ve_vg_label <- function(x) {
+  keys <- c(0.01, 0.1, 1, 10, 100)
+  labels <- c("0.01", "0.1", "1", "10", "100")
+  vapply(x, function(v) {
+    if (length(v) != 1L || !is.finite(v)) return(NA_character_)
+    idx <- which.min(abs(keys - v))
+    if (length(idx) == 0L) return(as.character(v))
+    if (abs(keys[idx] - v) < 1e-6) labels[idx] else as.character(v)
+  }, character(1))
+}
+
+df_results$ratio_label <- paste0(
+  "V[E]~'/'~V[G]~'='~'", format_ve_vg_label(df_results$ratio_venv_vtotal_num), "'"
+)
 
 x_breaks <- sort(unique(df_results$total_samples))
 n_replicates <- length(unique(df_results$n_replicate))
@@ -149,8 +162,7 @@ p_combined <- ggplot(df_results, aes(x = total_samples, y = TPR,
          linetype = guide_legend(order = 2, keywidth = unit(2.5, "lines"))) +
   labs(
     title = expression(bold("Power to detect adaptive "*Q[ST]*" across different sample structures")),
-    subtitle = paste("Summary stats:", summary_stats),
-    x = "Total sample size (No. of strains \u00d7 No. of replicates \u00d7 2 populations)",
+    x = "Total sample size (No. of genotypes \u00d7 No. of replicates \u00d7 2 populations)",
     y = "True Positive Rate (Power)"
   ) +
   coord_cartesian(ylim = c(0, 1)) +
@@ -188,8 +200,7 @@ p_per_pop <- ggplot(df_results, aes(x = samples_per_pop, y = TPR,
          linetype = guide_legend(order = 2, keywidth = unit(2.5, "lines"))) +
   labs(
     title = expression(bold("Power to detect adaptive "*Q[ST]*" across different sample structures")),
-    subtitle = paste("Summary stats:", summary_stats),
-    x = "Sample size per population (No. of strains \u00d7 No. of replicates)",
+    x = "Sample size per population (No. of genotypes \u00d7 No. of replicates)",
     y = "True Positive Rate (Power)"
   ) +
   coord_cartesian(ylim = c(0, 1)) +

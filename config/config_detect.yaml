@@ -1,4 +1,4 @@
-# REDQuanTA Module 1 (Detect) Configuration
+# REDQuanTEA Detection Module configuration
 # Snakemake config for adaptive QST detection
 
 # Input files
@@ -24,7 +24,11 @@ num_neutral: 100         # Number of neutral FST values to use (reduce for testi
 num_sim: 100000          # Number of ABC simulations per estimation
 batch_size: 50           # FST values per batch job
 threshold_percentile: 0.95
-summary_stats: "QST,ratioVbetweenVtotal"  # Default combo (aligned with perf-eval benchmark)
+summary_stats: "QST,ratioVbetweenVtotal"  # Default combo (manuscript)
+
+# Variance floor (F3 ridge; manuscript default)
+floor_policy: "F3"
+floor_alpha: 0.1
 
 # Chromosome types to analyze
 chromosomes:

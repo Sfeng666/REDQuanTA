@@ -1,10 +1,11 @@
-# REDQuanTA Module 1: Adaptive QST Detection Rules
+# REDQuanTEA Detection Module: Adaptive QST detection rules
 #
 # Workflow:
 #   1. Extract trait IDs from trait_values.csv
 #   2. For each trait: prepare_obs_stats -> estimate_trait_qst + estimate_neutral_qst -> aggregate_trait
 #   3. Combine all trait results -> qst_results.csv
 
+import os
 import pandas as pd
 from pathlib import Path
 
@@ -18,6 +19,8 @@ THRESHOLD_PERCENTILE = config.get("threshold_percentile", 0.95)
 SUMMARY_STATS = config.get("summary_stats", "QST,ratioVbetweenVtotal")
 CHROMOSOMES = config.get("chromosomes", ["autosomes", "chrX"])
 OUTPUT_DIR = config.get("output_dir", "results/detect")
+FLOOR_POLICY = config.get("floor_policy", "F3")
+FLOOR_ALPHA = config.get("floor_alpha", 0.1)
 
 # Calculate number of batches
 N_BATCHES = (NUM_NEUTRAL + BATCH_SIZE - 1) // BATCH_SIZE
@@ -68,12 +71,15 @@ rule estimate_trait_qst:
     params:
         num_sim=NUM_SIM,
         summary_stats=SUMMARY_STATS,
-        scripts_dir=SCRIPTS_DIR
+        scripts_dir=SCRIPTS_DIR,
+        floor_policy=FLOOR_POLICY,
+        floor_alpha=FLOOR_ALPHA
     threads: config.get("threads_per_job", 1)
     log:
         f"{OUTPUT_DIR}/logs/{{trait}}_estimate_trait_qst.log"
     shell:
         """
+        FLOOR_POLICY={params.floor_policy} FLOOR_ALPHA={params.floor_alpha} \
         Rscript {params.scripts_dir}/qst_abc_sim.R \
             trait \
             {input.obs_stats} \
@@ -96,7 +102,9 @@ rule estimate_neutral_qst:
         batch_size=BATCH_SIZE,
         num_sim=NUM_SIM,
         summary_stats=SUMMARY_STATS,
-        scripts_dir=SCRIPTS_DIR
+        scripts_dir=SCRIPTS_DIR,
+        floor_policy=FLOOR_POLICY,
+        floor_alpha=FLOOR_ALPHA
     threads: config.get("threads_per_job", 1)
     log:
         f"{OUTPUT_DIR}/logs/{{trait}}_{{chr}}_neutral_batch_{{batch}}.log"
@@ -112,6 +120,7 @@ rule estimate_neutral_qst:
         
         RATIOVEXT=$(cat {input.ratioVext})
         
+        FLOOR_POLICY={params.floor_policy} FLOOR_ALPHA={params.floor_alpha} \
         Rscript {params.scripts_dir}/qst_abc_sim.R \
             batch_neutral \
             $FST_BATCH \

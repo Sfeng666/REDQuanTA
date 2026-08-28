@@ -42,6 +42,11 @@ RSCRIPT = os.environ.get("RSCRIPT", shutil.which("Rscript") or "Rscript")
 DEFAULT_BATCH_SIZE = 1000
 
 
+def resolve_r_env_tarball_for_dag() -> str:
+    from r_env_paths import resolve_r_env_tarball
+    return resolve_r_env_tarball()
+
+
 def read_trait_ids(trait_values_path, max_traits=None):
     """Read trait IDs and chromosome info from trait values CSV."""
     traits = []
@@ -178,7 +183,7 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
         f.write(f'outdir="{trait_outdir}" ')
         f.write(f'dir_scripts="{SCRIPT_DIR}" ')
         f.write(f'dir_code="{WORKFLOW_SCRIPT_DIR}" ')
-        f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
+        f.write(f'r_env_tarball="{resolve_r_env_tarball_for_dag()}" ')
         f.write(f'job="{job_trait}"\n')
         all_jobs.append(job_trait)
         
@@ -197,11 +202,11 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
                 f.write(f'output_file="{neutral_file}" ')
                 f.write(f'num_sim="{params["num_sim"]}" ')
                 f.write(f'summary_stats="{params["summary_stats"]}" ')
-                f.write(f'fst_file="{batch_file}" ')
+                f.write(f'fst_file="{batch_file.resolve()}" ')
                 f.write(f'outdir="{trait_outdir}" ')
                 f.write(f'dir_scripts="{SCRIPT_DIR}" ')
                 f.write(f'dir_code="{WORKFLOW_SCRIPT_DIR}" ')
-                f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
+                f.write(f'r_env_tarball="{resolve_r_env_tarball_for_dag()}" ')
                 f.write(f'job="{job_neutral}"\n')
                 all_jobs.append(job_neutral)
             
@@ -222,7 +227,7 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
                 f.write(f'outdir="{trait_outdir}" ')
                 f.write(f'dir_scripts="{SCRIPT_DIR}" ')
                 f.write(f'dir_code="{WORKFLOW_SCRIPT_DIR}" ')
-                f.write(f'r_env_tarball="{HTCONDOR_DIR}/env/r_env.tar.gz" ')
+                f.write(f'r_env_tarball="{resolve_r_env_tarball_for_dag()}" ')
                 f.write(f'job="{job_neutral}"\n')
                 all_jobs.append(job_neutral)
             
@@ -276,6 +281,10 @@ def generate_trait_dag(dag_path, trait_info, params, ratioVext, obs_stats_file,
 def main():
     parser = argparse.ArgumentParser(description="Generate HTCondor DAG for QST detection")
     parser.add_argument("--trait-id", required=True, help="Trait ID to process")
+    parser.add_argument("--trait-values", default=str(INPUT_DIR / "trait_values.csv"))
+    parser.add_argument("--sample-structure", default=str(INPUT_DIR / "sample_structure.csv"))
+    parser.add_argument("--fst-autosomes", default=str(INPUT_DIR / "qst_neutral_autosomes.txt"))
+    parser.add_argument("--fst-chrx", default=str(INPUT_DIR / "qst_neutral_chrX.txt"))
     parser.add_argument("--num-neutral", type=int, default=10000,
                         help="Number of neutral FST values (default: 10000)")
     parser.add_argument("--num-sim", type=int, default=100000,
@@ -298,11 +307,10 @@ def main():
     
     args = parser.parse_args()
     
-    # Input file paths
-    trait_values = INPUT_DIR / "trait_values.csv"
-    sample_structure = INPUT_DIR / "sample_structure.csv"
-    fst_autosomes = INPUT_DIR / "qst_neutral_autosomes.txt"
-    fst_chrx = INPUT_DIR / "qst_neutral_chrX.txt"
+    trait_values = Path(args.trait_values)
+    sample_structure = Path(args.sample_structure)
+    fst_autosomes = Path(args.fst_autosomes)
+    fst_chrx = Path(args.fst_chrx)
     
     # Read trait info
     traits = read_trait_ids(trait_values)

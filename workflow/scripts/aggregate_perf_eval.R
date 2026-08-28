@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Aggregate performance evaluation results (Module 2)
+# Aggregate performance evaluation results (Design Module)
 # Calculates TPR/FPR matrices and generates heatmaps
 #
 # Usage:

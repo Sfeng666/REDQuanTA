@@ -1,0 +1,24 @@
+# REDQuanTEA Design Module: tiny local smoke run
+fst_input_mode: "direct"
+fst_autosomes: "data/example/qst_neutral_autosomes.txt"
+fst_chrX: "data/example/qst_neutral_chrX.txt"
+adaptive_qst_levels:
+  - 0.75
+  - 1.00
+ve_ratios:
+  - 0.1
+  - 1.0
+num_repeats: 20
+num_neutral: 20
+num_sim: 2000
+batch_size: 20
+threshold_percentile: 0.95
+floor_policy: "F3"
+floor_alpha: 0.1
+summary_stats_combos:
+  - "QST,ratioVbetweenVtotal"
+chromosomes:
+  - "autosomes"
+sample_structures: []
+output_dir: "results/evaluate_smoke"
+threads_per_job: 1

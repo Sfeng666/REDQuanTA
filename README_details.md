@@ -1,13 +1,13 @@
-# REDQuanTA Detailed Documentation
+# REDQuanTEA Detailed Documentation
 
-This document provides comprehensive documentation for REDQuanTA, including full parameter descriptions, HTCondor setup instructions, and troubleshooting guides.
+This document provides comprehensive documentation for REDQuanTEA, including full parameter descriptions, HTCondor setup instructions, and troubleshooting guides.
 
 ## Table of Contents
 
 1. [Installation](#installation)
 2. [Configuration Files](#configuration-files)
-3. [Module 1: Detect Adaptive Traits](#module-1-detect-adaptive-traits)
-4. [Module 2: Evaluate Performance](#module-2-evaluate-performance)
+3. [Detection Module: Detect Adaptive Traits](#detection-module-detect-adaptive-traits)
+4. [Design Module: Evaluate Performance](#design-module-evaluate-performance)
 5. [HTCondor Setup](#htcondor-setup)
 6. [FST Input Options](#fst-input-options)
 7. [Performance Benchmarks](#performance-benchmarks)
@@ -28,11 +28,11 @@ This document provides comprehensive documentation for REDQuanTA, including full
 ```bash
 # Using conda
 conda env create -f environment.yml
-conda activate redquanta
+conda activate redquantea
 
 # Using mamba (faster)
 mamba env create -f environment.yml
-mamba activate redquanta
+mamba activate redquantea
 ```
 
 ### Verify Installation
@@ -49,7 +49,7 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 
 ## Configuration Files
 
-### config/config_detect.yaml (Module 1)
+### config/config_detect.yaml (Detection Module)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -63,10 +63,12 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 | `batch_size` | 50 | FST values per batch job |
 | `threshold_percentile` | 0.95 | Threshold for adaptive detection |
 | `summary_stats` | `QST,ratioVbetweenVtotal` | Summary statistics for ABC |
+| `floor_policy` | `F3` | Variance floor (`F3` ridge or `baseline`) |
+| `floor_alpha` | `0.1` | F3 ridge alpha |
 | `chromosomes` | `[autosomes, chrX]` | Chromosome types to analyze |
 | `output_dir` | `results/detect` | Output directory |
 
-### config/config_evaluate.yaml (Module 2 - Local)
+### config/config_evaluate.yaml (Design Module - Local)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -76,9 +78,10 @@ Rscript -e "library(abc); library(ggplot2); cat('R packages OK\n')"
 | `num_neutral` | 100 | Neutral simulations (reduced for local) |
 | `num_sim` | 100000 | ABC simulations per estimation |
 | `batch_size` | 50 | Values per batch |
+| `floor_policy` | `F3` | Variance floor (`F3` ridge or `baseline`) |
 | `summary_stats_combos` | `[QST,ratioVbetweenVtotal, ...]` | Summary stat combinations to evaluate |
 
-### config/config_evaluate_full.yaml (Module 2 - HTCondor)
+### config/config_evaluate_full.yaml (Design Module - HTCondor)
 
 Full-scale parameters for HTCondor execution:
 
@@ -92,7 +95,7 @@ Full-scale parameters for HTCondor execution:
 
 ---
 
-## Module 1: Detect Adaptive Traits
+## Detection Module: Detect Adaptive Traits
 
 ### Workflow Steps
 
@@ -130,7 +133,7 @@ snakemake --configfile config/config_detect.yaml \
 
 ---
 
-## Module 2: Evaluate Performance
+## Design Module: Evaluate Performance
 
 ### Workflow Steps
 
@@ -182,38 +185,35 @@ The output is `htcondor/env/r_env.tar.gz` (listed in `.gitignore` because of siz
 
 ### Submitting Jobs
 
-#### Module 1: Single Trait
+Wrappers under `htcondor/scripts/` generate DAGs and submit them. Set `DRY_RUN=1` to generate only.
+
+#### Detection Module (fused, one job per trait)
+
+```bash
+TRAIT_VALUES=data/example/trait_values.csv \
+RESULTS_DIR=results/detect_chtc \
+OUTPUT_DAG=results/dags/detect.dag \
+NUM_NEUTRAL=1000 NUM_SIM=100000 \
+bash htcondor/scripts/submit_detection.sh
+```
+
+For a single trait, `prepare_trait_dag.py` still works:
 
 ```bash
 python htcondor/scripts/prepare_trait_dag.py \
     --trait-id L0MQ04 \
     --num-neutral 10000 \
     --batch-size 1000
-
-condor_submit_dag results/dags/trait_L0MQ04.dag
 ```
 
-#### Module 1: Multiple Traits
+#### Design Module (one combo file)
 
 ```bash
-python htcondor/scripts/generate_all_dags.py \
-    --max-traits 100 \
-    --num-neutral 10000 \
-    --batch-size 1000
-
-condor_submit_dag results/dags/all_traits.dag
-```
-
-#### Module 2: Performance Evaluation
-
-```bash
-python htcondor/scripts/prepare_perf_eval_dag.py \
-    --chr both \
-    --num-repeats 10000 \
-    --output-dir results/perf_eval
-
-condor_submit_dag results/perf_eval/perf_eval_autosomes.dag
-condor_submit_dag results/perf_eval/perf_eval_chrX.dag
+printf 'QST\tratioVbetweenVtotal\n' > /tmp/combo.txt
+COMBO_FILE=/tmp/combo.txt \
+OUTPUT_DIR=results/design_chtc \
+NUM_REPEATS=10000 NUM_NEUTRAL=10000 BATCH_SIZE=1000 \
+bash htcondor/scripts/submit_design.sh
 ```
 
 ### Optional Post-Processing (Local)
@@ -223,7 +223,7 @@ submit node or your workstation after the corresponding jobs finish.
 
 #### Sample-structure aggregation + power plots
 
-HTCondor Module 2 DAGs write batch `.RData` under `neutral_ratio_{i}/` and
+HTCondor Design Module DAGs write batch `.RData` under `neutral_ratio_{i}/` and
 `adaptive_q{qst}_r{i}/`. The DAG POST script calls `aggregate_perf_eval.R`, which
 must read those **directories** (not legacy flat log basenames). If matrices are
 all `NA`, re-run aggregation locally with the script below.
@@ -274,7 +274,7 @@ The R script `workflow/scripts/plot_sample_structure_comparison.R` auto-discover
 #### Fast multi-combo perf-eval aggregation
 
 Use when each HTCondor job wrote **many** summary-stat combinations into batch
-`.RData` files (e.g. `prepare_perf_eval_all_combos_fast_dag.py` with a
+`.RData` files (e.g. `prepare_design_dag.py` with a
 `combinations*.txt` file). This is much faster than calling
 `aggregate_perf_eval.R` once per combo.
 
@@ -320,7 +320,7 @@ R scripts: `generate_combined_ranking.R` (reads `model` column from per-combo CS
 (see script header). Defaults match the standard 11-level adaptive Q<sub>ST</sub>
 grid and five V<sub>E</sub>/V<sub>G</sub> ratios used in full perf-eval DAGs.
 
-For single-combo Module 2 runs, the DAG POST script still uses
+For single-combo Design Module runs, the DAG POST script still uses
 `aggregate_perf_eval.R`; use the fast script only when many combos were scored
 per batch job.
 
@@ -343,6 +343,40 @@ condor_q -hold              # List held jobs
 condor_q -dag               # DAG status
 condor_watch_q              # Real-time monitoring
 tail -f results/dags/*.dagman.out  # DAG progress
+```
+
+---
+
+## Extra analyses (any trait type)
+
+These scripts take trait-type names and paths as arguments. They do not assume a protein collection or a fixed directory layout.
+
+Compare Detection Module adaptive calls to a chromosome-matched F<sub>ST</sub> threshold:
+
+```bash
+Rscript workflow/scripts/compare_adaptive_fst_vs_qst.R \
+  --results-root path/to/collections \
+  --output-dir path/to/collections/comparison \
+  --fst-autosomes data/example/qst_neutral_autosomes.txt \
+  --fst-chrx data/example/qst_neutral_chrX.txt
+```
+
+Each collection directory must contain `summary/qst_results_abc.csv`. Omit `--trait-types` to use every matching subdirectory, or pass a comma-separated list.
+
+Plot Q<sub>ST</sub> densities across collections:
+
+```bash
+Rscript workflow/scripts/plot_comparison_across_trait_types.R \
+  --results-root path/to/collections \
+  --output-dir path/to/collections/comparison
+```
+
+One-collection plots after `bash htcondor/scripts/aggregate_detection.sh RESULTS_DIR`:
+
+```bash
+Rscript workflow/scripts/plot_qst_distribution.R RESULTS_DIR RESULTS_DIR/plots pdf_only "My trait type"
+Rscript workflow/scripts/plot_combined_neutral_qst.R RESULTS_DIR RESULTS_DIR/plots pdf_only
+Rscript workflow/scripts/analyze_per_trait_peaks.R RESULTS_DIR RESULTS_DIR/plots pdf_only
 ```
 
 ---
@@ -435,7 +469,7 @@ Error in library(abc): there is no package called 'abc'
 
 **Solution**: Reinstall environment:
 ```bash
-conda env remove -n redquanta
+conda env remove -n redquantea
 conda env create -f environment.yml
 ```
 

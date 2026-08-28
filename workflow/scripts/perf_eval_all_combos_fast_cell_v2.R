@@ -12,7 +12,7 @@
 # Same FAST_ABC_ESTIMATOR contract (loclinear default, rejection optional) and
 # same RData schema as v1.
 #
-# Optional tool: not wired into the default REDQuanTA Snakemake workflow; place
+# Optional tool: not wired into the default REDQuanTEA Snakemake workflow; place
 # qst_abc_sim.R on QST_CODE_DIR or alongside this script when running standalone.
 # Vectorized ABC lives in abc_fast_estimators.R (loaded by qst_abc_sim.R).
 
@@ -56,10 +56,10 @@ fast_estimator_mode <- function(estimator = NULL) {
 build_fast_reference_pool <- function(obs_stats, num_sim, summary_stat_combos) {
   required_stats <- get_required_stats(summary_stat_combos)
   n_stats <- length(required_stats)
-  batch_size <- 5000L
+  batch_size <- as.integer(Sys.getenv("QST_ABC_BATCH_SIZE", "50000"))
   num_batches <- ceiling(num_sim / batch_size)
 
-  prior_floor <- 0.1 * (obs_stats["among_pop_sd"] + obs_stats["within_pop_sd"] + obs_stats["ext_sd"])
+  prior_floor <- 0.1 * (obs_stats["among_pop_sd"] + obs_stats["within_pop_sd"])
   sd_between_pop_prior <- runif(num_sim, 0, max(2 * obs_stats["among_pop_sd"], prior_floor))
   sd_within_pop_prior <- runif(num_sim, 0, max(2 * obs_stats["within_pop_sd"], prior_floor))
   sd_ext_prior <- runif(num_sim, 0, 2 * obs_stats["ext_sd"])
@@ -101,6 +101,13 @@ build_fast_reference_pool <- function(obs_stats, num_sim, summary_stat_combos) {
 
 estimate_qst_abc_all_combos_fast <- function(obs_stats, num_sim, summary_stat_combos,
                                              estimator = NULL) {
+  # S1: align Design Module with Detection Module both-negative NA policy
+  if (is_both_neg(obs_stats)) {
+    combo_names <- vapply(summary_stat_combos, combo_name, character(1))
+    qst <- setNames(rep(NA_real_, length(combo_names)), combo_names)
+    p <- setNames(rep(NA_real_, length(combo_names)), combo_names)
+    return(list(qst = qst, p_qst_gt_fst95 = p))
+  }
   pool <- build_fast_reference_pool(obs_stats, num_sim, summary_stat_combos)
   n_valid <- nrow(pool$sim_stats_valid)
   tol <- max(0.001, get_abc_tol_numerator() / n_valid)
@@ -128,10 +135,24 @@ process_evaluate_batch_all_combos_fast <- function(n_repeats, qst_value, ve_rati
     ve_ratio = rep(ve_ratio, n_repeats * n_combos),
     combo = rep(combo_names, n_repeats),
     estimated_qst = rep(NA_real_, n_repeats * n_combos),
+    p_qst_gt_fst95 = rep(NA_real_, n_repeats * n_combos),
     stringsAsFactors = FALSE
   )
 
-  for (i in seq_len(n_repeats)) {
+  num_cores <- 1L
+  for (env_var in c("POC_P2_MC_CORES", "_CONDOR_NPROCS")) {
+    val <- Sys.getenv(env_var, unset = "")
+    if (nzchar(val)) {
+      cores_val <- suppressWarnings(as.integer(val))
+      if (!is.na(cores_val) && cores_val > 1L) {
+        num_cores <- cores_val
+        break
+      }
+    }
+  }
+  cat("Parallel worker cores configuration:", num_cores, "\n")
+
+  run_trial <- function(i) {
     repeat_id <- start_id + i - 1L
     seed <- (round(qst_value * 100) * 10000 + round(ve_ratio * 1000) * 100 + repeat_id) %%
       .Machine$integer.max
@@ -140,13 +161,24 @@ process_evaluate_batch_all_combos_fast <- function(n_repeats, qst_value, ve_rati
       qst_estimates <- estimate_qst_abc_all_combos_fast(
         obs_stats, num_sim, summary_stat_combos, estimator = estimator
       )
-      base <- (i - 1L) * n_combos
-      results$estimated_qst[base + seq_len(n_combos)] <- as.numeric(qst_estimates[combo_names])
+      return(c(
+        as.numeric(fast_abc_multi_qst(qst_estimates)[combo_names]),
+        as.numeric(fast_abc_multi_p_tail(qst_estimates)[combo_names])
+      ))
     }
-    gc(verbose = FALSE, full = TRUE, reset = TRUE)
-    if (i %% 10 == 0 || i == n_repeats) {
-      cat("  Processed", i, "/", n_repeats, "repeats\n")
+    return(rep(NA_real_, n_combos * 2L))
+  }
+
+  estimates_list <- mclapply(seq_len(n_repeats), run_trial, mc.cores = num_cores)
+
+  for (i in seq_len(n_repeats)) {
+    val <- estimates_list[[i]]
+    if (inherits(val, "try-error") || is.null(val) || length(val) != n_combos * 2L) {
+      val <- rep(NA_real_, n_combos * 2L)
     }
+    base <- (i - 1L) * n_combos
+    results$estimated_qst[base + seq_len(n_combos)] <- val[seq_len(n_combos)]
+    results$p_qst_gt_fst95[base + seq_len(n_combos)] <- val[n_combos + seq_len(n_combos)]
   }
   results
 }
@@ -162,10 +194,24 @@ process_fst_batch_all_combos_fast <- function(fst_values, ratioVext, num_sim,
     fst = rep(fst_values, each = n_combos),
     combo = rep(combo_names, n_fst),
     qst = rep(NA_real_, n_fst * n_combos),
+    p_qst_gt_fst95 = rep(NA_real_, n_fst * n_combos),
     stringsAsFactors = FALSE
   )
 
-  for (i in seq_along(fst_values)) {
+  num_cores <- 1L
+  for (env_var in c("POC_P2_MC_CORES", "_CONDOR_NPROCS")) {
+    val <- Sys.getenv(env_var, unset = "")
+    if (nzchar(val)) {
+      cores_val <- suppressWarnings(as.integer(val))
+      if (!is.na(cores_val) && cores_val > 1L) {
+        num_cores <- cores_val
+        break
+      }
+    }
+  }
+  cat("Parallel worker cores configuration:", num_cores, "\n")
+
+  run_fst <- function(i) {
     fst_value <- fst_values[i]
     global_idx <- start_idx + i - 1L
     seed <- (round(fst_value * 1e6) + global_idx * 10000) %% .Machine$integer.max
@@ -174,13 +220,24 @@ process_fst_batch_all_combos_fast <- function(fst_values, ratioVext, num_sim,
       qst_estimates <- estimate_qst_abc_all_combos_fast(
         obs_stats, num_sim, summary_stat_combos, estimator = estimator
       )
-      base <- (i - 1L) * n_combos
-      results$qst[base + seq_len(n_combos)] <- as.numeric(qst_estimates[combo_names])
+      return(c(
+        as.numeric(fast_abc_multi_qst(qst_estimates)[combo_names]),
+        as.numeric(fast_abc_multi_p_tail(qst_estimates)[combo_names])
+      ))
     }
-    gc(verbose = FALSE, full = TRUE, reset = TRUE)
-    if (i %% 10 == 0 || i == n_fst) {
-      cat("  Processed", i, "/", n_fst, "FST values\n")
+    return(rep(NA_real_, n_combos * 2L))
+  }
+
+  estimates_list <- mclapply(seq_along(fst_values), run_fst, mc.cores = num_cores)
+
+  for (i in seq_along(fst_values)) {
+    val <- estimates_list[[i]]
+    if (inherits(val, "try-error") || is.null(val) || length(val) != n_combos * 2L) {
+      val <- rep(NA_real_, n_combos * 2L)
     }
+    base <- (i - 1L) * n_combos
+    results$qst[base + seq_len(n_combos)] <- val[seq_len(n_combos)]
+    results$p_qst_gt_fst95[base + seq_len(n_combos)] <- val[n_combos + seq_len(n_combos)]
   }
   results
 }

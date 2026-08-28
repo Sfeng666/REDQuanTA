@@ -17,15 +17,16 @@ error = $(job).err
 
 # Resource requests - based on benchmark results for batch_1000
 request_cpus = 1
-request_memory = 4GB
+request_memory = 1GB
 request_disk = 2GB
 
-# Auto-retry jobs held due to transient failures (transfer=13, memory=21)
-periodic_release = (NumJobStarts < 5) && ((HoldReasonCode == 13) || (HoldReasonCode == 21))
+# Auto-retry memory holds only; transfer holds (12/13) -> CHTC via monitor_ospool_fallback.sh
+periodic_release = (NumJobStarts < 5) && (HoldReasonCode == 21)
 
-# Enable scaling to campus pools and OS Pool (reference: https://chtc.cs.wisc.edu/uw-research-computing/scaling-htc)
+# OS Pool + campus pools for throughput; monitor patches held jobs to CHTC-only
 want_campus_pools = true
 want_ospool = true
+requirements = (Target.OpSysMajorVer >= 7)
 
 queue
 

@@ -1,4 +1,4 @@
-# REDQuanTA Snakemake Workflow
+# REDQuanTEA Snakemake Workflow
 import os
 from pathlib import Path
 configfile: "config/config_detect.yaml"

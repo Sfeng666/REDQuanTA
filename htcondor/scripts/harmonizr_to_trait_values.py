@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert Harmonizr abundance TSV (FeatureID × samples) to REDQuanTA trait_values.csv.
+"""Convert Harmonizr abundance TSV (FeatureID × samples) to REDQuanTEA trait_values.csv.
 
 Output columns: trait_id, then sample columns in ascending sample_id order (default 1..36),
 matching data/input/sample_structure.csv sample_id values.

@@ -1,4 +1,4 @@
-# REDQuanTA Module 2: Performance Evaluation Rules
+# REDQuanTEA Design Module: performance evaluation rules
 #
 # Workflow:
 #   1. For each (adaptive_qst, ve_ratio, chr, summary_stats) combination:
@@ -23,6 +23,14 @@ SUMMARY_STATS_COMBOS = config.get("summary_stats_combos", ["QST,ratioVbetweenVto
 STATS_MAP = {s.replace(",", "_"): s for s in SUMMARY_STATS_COMBOS}
 CHROMOSOMES = config.get("chromosomes", ["autosomes", "chrX"])
 OUTPUT_DIR = config.get("output_dir", "results/evaluate")
+FLOOR_POLICY = config.get("floor_policy", "F3")
+FLOOR_ALPHA = config.get("floor_alpha", 0.1)
+
+# 1-based ratio index and QST filename stems expected by aggregate_perf_eval.R
+RATIO_IDX = [str(i) for i in range(1, len(VE_RATIOS) + 1)]
+VE_BY_IDX = {str(i): r for i, r in enumerate(VE_RATIOS, 1)}
+QST_STRS = [f"{q:.2f}".replace(".", "_") for q in ADAPTIVE_QST_LEVELS]
+QST_BY_STR = {f"{q:.2f}".replace(".", "_"): q for q in ADAPTIVE_QST_LEVELS}
 
 # Calculate number of batches
 N_NEUTRAL_BATCHES = (NUM_NEUTRAL + BATCH_SIZE - 1) // BATCH_SIZE
@@ -33,17 +41,19 @@ rule evaluate_neutral_qst:
     input:
         fst_file=lambda wildcards: config.get(f"fst_{wildcards.chr}", f"data/example/qst_neutral_{wildcards.chr}.txt")
     output:
-        neutral_batch=f"{OUTPUT_DIR}/{{chr}}/{{stats}}/neutral_r{{ratio}}_b{{batch}}.RData"
+        neutral_batch=f"{OUTPUT_DIR}/{{chr}}/{{stats}}/neutral_ratio_{{ratio_idx}}/neutral_batch_{{batch}}.RData"
     params:
-        ve_ratio="{ratio}",
+        ve_ratio=lambda wildcards: VE_BY_IDX[wildcards.ratio_idx],
         batch="{batch}",
         batch_size=BATCH_SIZE,
         num_sim=NUM_SIM,
         summary_stats=lambda wildcards: STATS_MAP[wildcards.stats],
-        scripts_dir=SCRIPTS_DIR
+        scripts_dir=SCRIPTS_DIR,
+        floor_policy=FLOOR_POLICY,
+        floor_alpha=FLOOR_ALPHA
     threads: config.get("threads_per_job", 1)
     log:
-        f"{OUTPUT_DIR}/logs/{{chr}}_{{stats}}_neutral_r{{ratio}}_b{{batch}}.log"
+        f"{OUTPUT_DIR}/logs/{{chr}}_{{stats}}_neutral_r{{ratio_idx}}_b{{batch}}.log"
     shell:
         """
         mkdir -p $(dirname {output.neutral_batch})
@@ -54,6 +64,7 @@ rule evaluate_neutral_qst:
         FST_BATCH=$(mktemp)
         sed -n "${{START}},${{END}}p" {input.fst_file} > $FST_BATCH
         
+        FLOOR_POLICY={params.floor_policy} FLOOR_ALPHA={params.floor_alpha} \
         Rscript {params.scripts_dir}/qst_abc_sim.R \
             batch_neutral \
             $FST_BATCH \
@@ -71,24 +82,27 @@ rule evaluate_adaptive_qst:
     input:
         fst_file=lambda wildcards: config.get(f"fst_{wildcards.chr}", f"data/example/qst_neutral_{wildcards.chr}.txt")
     output:
-        adaptive_batch=f"{OUTPUT_DIR}/{{chr}}/{{stats}}/adaptive_q{{qst}}_r{{ratio}}_b{{batch}}.RData"
+        adaptive_batch=f"{OUTPUT_DIR}/{{chr}}/{{stats}}/adaptive_q{{qst_str}}_r{{ratio_idx}}/adaptive_batch_{{batch}}.RData"
     params:
-        adaptive_qst="{qst}",
-        ve_ratio="{ratio}",
+        adaptive_qst=lambda wildcards: QST_BY_STR[wildcards.qst_str],
+        ve_ratio=lambda wildcards: VE_BY_IDX[wildcards.ratio_idx],
         batch="{batch}",
         batch_size=BATCH_SIZE,
         num_sim=NUM_SIM,
         summary_stats=lambda wildcards: STATS_MAP[wildcards.stats],
-        scripts_dir=SCRIPTS_DIR
+        scripts_dir=SCRIPTS_DIR,
+        floor_policy=FLOOR_POLICY,
+        floor_alpha=FLOOR_ALPHA
     threads: config.get("threads_per_job", 1)
     log:
-        f"{OUTPUT_DIR}/logs/{{chr}}_{{stats}}_adaptive_q{{qst}}_r{{ratio}}_b{{batch}}.log"
+        f"{OUTPUT_DIR}/logs/{{chr}}_{{stats}}_adaptive_q{{qst_str}}_r{{ratio_idx}}_b{{batch}}.log"
     shell:
         """
         mkdir -p $(dirname {output.adaptive_batch})
         
         START_ID=$(( ({params.batch} - 1) * {params.batch_size} + 1 ))
         
+        FLOOR_POLICY={params.floor_policy} FLOOR_ALPHA={params.floor_alpha} \
         Rscript {params.scripts_dir}/qst_abc_sim.R \
             batch_evaluate \
             "${{START_ID}}_{params.batch_size}_{params.adaptive_qst}" \
@@ -103,18 +117,18 @@ rule evaluate_adaptive_qst:
 rule aggregate_perf_eval:
     input:
         neutral_batches=lambda wildcards: expand(
-            f"{OUTPUT_DIR}/{{chr}}/{{stats}}/neutral_r{{ratio}}_b{{batch}}.RData",
+            f"{OUTPUT_DIR}/{{chr}}/{{stats}}/neutral_ratio_{{ratio_idx}}/neutral_batch_{{batch}}.RData",
             chr=wildcards.chr,
             stats=wildcards.stats,
-            ratio=[str(r) for r in VE_RATIOS],
+            ratio_idx=RATIO_IDX,
             batch=range(1, N_NEUTRAL_BATCHES + 1)
         ),
         adaptive_batches=lambda wildcards: expand(
-            f"{OUTPUT_DIR}/{{chr}}/{{stats}}/adaptive_q{{qst}}_r{{ratio}}_b{{batch}}.RData",
+            f"{OUTPUT_DIR}/{{chr}}/{{stats}}/adaptive_q{{qst_str}}_r{{ratio_idx}}/adaptive_batch_{{batch}}.RData",
             chr=wildcards.chr,
             stats=wildcards.stats,
-            qst=[str(q) for q in ADAPTIVE_QST_LEVELS],
-            ratio=[str(r) for r in VE_RATIOS],
+            qst_str=QST_STRS,
+            ratio_idx=RATIO_IDX,
             batch=range(1, N_ADAPTIVE_BATCHES + 1)
         )
     output:

@@ -6,7 +6,7 @@ executable = $(dir_scripts)/run_abc_qst.sh
 arguments = neutral $(fst_value) $(ratioVext) $(output_file) $(num_sim) $(summary_stats)
 
 # Transfer R script and environment from home directory (avoids osdf issues)
-transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(r_env_tarball)
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(r_env_tarball)$(extra_input_files)
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 transfer_output_files = $(output_file)
@@ -18,7 +18,7 @@ error = $(job).err
 
 # Resource requests - based on benchmark results for batch_1000
 request_cpus = 1
-request_memory = 4GB
+request_memory = 1GB
 request_disk = 2GB
 
 # Auto-retry jobs held due to transient failures (transfer=13, memory=21)

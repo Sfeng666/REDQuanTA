@@ -79,7 +79,7 @@ Each batch `.RData` has `result$is_multi_combo == TRUE` and a `combo` column whe
 
 ## Reproduce examples
 
-From the REDQuanTA repository root with `redquanta` (or any env with `ggplot2`, `dplyr`, `tidyr`, `viridis`):
+From the REDQuanTEA repository root with `redquantea` (or any env with `ggplot2`, `dplyr`, `tidyr`, `viridis`):
 
 ```bash
 # Aggregation example

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HTCondor/local wrapper for perf_eval_all_combos_fast_cell_v2.R (REDQuanTA workflow/scripts).
+# HTCondor/local wrapper for perf_eval_all_combos_fast_cell_v2.R (REDQuanTEA workflow/scripts).
 set -euo pipefail
 
 MODE="${1:?need mode adaptive|neutral}"
@@ -34,7 +34,7 @@ else
 fi
 
 export QST_CODE_DIR="${QST_CODE_DIR:-$wd}"
-echo "REDQuanTA fast all-combo perf-eval (v2)"
+echo "REDQuanTEA fast all-combo perf-eval (v2)"
 echo "Mode: $MODE"
 echo "QST_CODE_DIR: $QST_CODE_DIR"
 echo "Estimator: ${FAST_ABC_ESTIMATOR:-loclinear}"

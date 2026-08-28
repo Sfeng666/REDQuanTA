@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build htcondor/env/r_env.tar.gz from htcondor/env/r_qst.yml using conda-pack.
-# Run from the REDQuanTA repository root:
+# Run from the REDQuanTEA repository root:
 #   bash htcondor/scripts/pack_r_env.sh
 #
 set -euo pipefail

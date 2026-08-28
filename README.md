@@ -1,218 +1,202 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="data/reference/title_dark.svg">
-  <img alt="REDQuanTA" src="data/reference/title_light.svg" height="48">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/REDQuanTEA_logo_dark.png">
+  <img alt="REDQuanTEA" src="docs/logo/REDQuanTEA_logo_light.png" height="80">
 </picture>
 
-**R**eplication-**E**nhanced **D**etection of **Quan**titative **T**raits under **A**daptation
+**R**eplication-**E**nhanced **D**etection of **Quan**titative **T**raits **E**volving **A**daptively
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A workflow for detecting adaptive quantitative trait divergence (Q<sub>ST</sub>) using Approximate Bayesian Computation (ABC). The workflow supports both local execution (via Snakemake) and distributed computing (via HTCondor).
+A workflow for detecting adaptive quantitative trait divergence (Q<sub>ST</sub>) from replicated measurements, using Approximate Bayesian Computation (ABC). It runs locally with Snakemake or on HTCondor (CHTC / OSPool).
 
-## Workflow Overview
+Q<sub>ST</sub>–F<sub>ST</sub> comparisons lose power when extrinsic (non-genetic) variance deflates Q<sub>ST</sub>. REDQuanTEA uses biological replication plus ABC to separate V<sub>E</sub> from genetic variance, then compares each trait to a trait-specific dynamic neutral Q<sub>ST</sub> threshold matched on sample structure, estimator, chromosome, and V<sub>E</sub>/V<sub>G</sub>.
+
+Default ABC method: loclinear. Default summary-stat combination: `QST,ratioVbetweenVtotal`. Default variance floor: F3 ridge (α = 0.1).
+
+## Workflow overview
 
 ![QST Workflow](data/reference/QST_workflow_both_modes_white_bg.png)
 
-### Module 1: Detect Adaptive Traits
-1. Calculate variance components using Method of Moments (MoM)
-2. Estimate trait Q<sub>ST</sub> using ABC with neural network regression
-3. Generate neutral Q<sub>ST</sub> distribution from empirical F<sub>ST</sub> values
-4. Compare trait Q<sub>ST</sub> to the neutral threshold (95th percentile)
-5. Flag traits as adaptive if Q<sub>ST</sub> > threshold
+### Detection Module
 
-### Module 2: Evaluate Performance
-1. Simulate traits with known adaptive Q<sub>ST</sub> values
-2. Calculate True Positive Rate (TPR) and False Positive Rate (FPR)
-3. Rank summary statistic combinations by performance
-4. Compare power across different sample structures
+1. Calculate variance components (method of moments) with the F3 ridge floor.
+2. Estimate trait Q<sub>ST</sub> with loclinear ABC.
+3. Build a neutral Q<sub>ST</sub> distribution from empirical F<sub>ST</sub> values at the same V<sub>E</sub>/V<sub>G</sub>.
+4. Compare trait Q<sub>ST</sub> to the 95th percentile of that null.
+5. Call a trait adaptive if Q<sub>ST</sub> exceeds the threshold.
+
+### Design Module
+
+1. Simulate traits with known adaptive Q<sub>ST</sub> and V<sub>E</sub>/V<sub>G</sub>.
+2. Compute true positive rate (TPR) and false positive rate (FPR).
+3. Rank summary-statistic combinations.
+4. Compare power across sample structures (optional).
+
+Manuscript figure sources are listed in [docs/MANUSCRIPT_FIGURES.md](docs/MANUSCRIPT_FIGURES.md).
 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/sfeng666/REDQuanTA.git
-cd REDQuanTA
+git clone https://github.com/sfeng666/REDQuanTEA.git
+cd REDQuanTEA
 
-# Create conda environment
 conda env create -f environment.yml
-conda activate redquanta
+conda activate redquantea
 ```
 
-## Quick Start
+On CHTC submit nodes, load Snakemake from the [htc-modules](https://chtc.cs.wisc.edu/uw-research-computing/htc-modules) collection if conda is not already set up.
 
-### Module 1: Detect Adaptive Traits (Local/Snakemake)
+Pack an R environment for HTCondor workers once:
 
 ```bash
-# Dry run to see what will be executed
+bash htcondor/scripts/pack_r_env.sh
+bash htcondor/scripts/sync_r_env_to_staging.sh
+```
+
+## Quick start (local / Snakemake)
+
+Short check (2 traits, fewer simulations):
+
+```bash
+bash scripts/validate_local.sh
+# or:
+snakemake --configfile config/config_detect_smoke.yaml --cores 4
+snakemake evaluate_all --configfile config/config_evaluate_smoke.yaml --cores 4
+```
+
+Detection Module on the full example table:
+
+```bash
 snakemake --configfile config/config_detect.yaml --cores 4 -n
-
-# Run the workflow
 snakemake --configfile config/config_detect.yaml --cores 4
+# Output: results/detect/qst_results.csv
 ```
 
-### Module 2: Evaluate Performance (Local/Snakemake)
+Design Module (reduced parameters for a workstation):
 
 ```bash
-# With reduced parameters for local testing
-snakemake --configfile config/config_evaluate.yaml --cores 4
-
+snakemake evaluate_all --configfile config/config_evaluate.yaml --cores 4
 # Output: results/evaluate/combined_model_ranking.csv
 ```
 
-### HTCondor Execution
+## Quick start (HTCondor / CHTC)
 
-For large-scale analysis using HTCondor distributed computing:
+Detection Module, fused one-job-per-trait DAG:
 
 ```bash
-# Module 1: Generate and submit DAG
-python htcondor/scripts/prepare_trait_dag.py --trait-id L0MQ04
-condor_submit_dag results/dags/trait_L0MQ04.dag
-
-# Module 2: Generate and submit evaluation DAG
-python htcondor/scripts/prepare_perf_eval_dag.py --chr both
-condor_submit_dag results/perf_eval/perf_eval_autosomes.dag
+TRAIT_VALUES=data/example/trait_values_smoke.csv \
+RESULTS_DIR=results/detect_chtc \
+OUTPUT_DAG=results/dags/detect.dag \
+NUM_NEUTRAL=100 NUM_SIM=10000 MAX_TRAITS=2 DRY_RUN=1 \
+bash htcondor/scripts/submit_detection.sh
 ```
 
-## Input Files
+Set `DRY_RUN=0` (default) to submit. After jobs finish:
+
+```bash
+bash htcondor/scripts/aggregate_detection.sh results/detect_chtc
+```
+
+Design Module, one summary-stat combination:
+
+```bash
+printf 'QST\tratioVbetweenVtotal\n' > /tmp/combo.txt
+COMBO_FILE=/tmp/combo.txt \
+OUTPUT_DIR=results/design_chtc \
+NUM_REPEATS=100 NUM_NEUTRAL=100 BATCH_SIZE=50 DRY_RUN=1 \
+bash htcondor/scripts/submit_design.sh
+```
+
+After jobs finish, aggregate TPR/FPR matrices:
+
+```bash
+bash workflow/scripts/run_aggregate_perf_eval_multicombo_fast.sh results/design_chtc
+```
+
+## Input files
 
 | File | Description |
 |------|-------------|
-| `sample_structure.csv` | Population/strain/replicate structure |
-| `trait_values.csv` | Trait measurements per strain/replicate |
+| `sample_structure.csv` | Population / strain / replicate layout |
+| `trait_values.csv` | Trait measurements per strain / replicate |
 | `qst_neutral_autosomes.txt` | Neutral F<sub>ST</sub> values (autosomes) |
 | `qst_neutral_chrX.txt` | Neutral F<sub>ST</sub> values (X chromosome) |
 
-### Sample Structure Format
+Example copies live in `data/example/`. Sample structure:
 
 ```csv
 population,strain,replicate
 pop1,strain1,rep1
 pop1,strain1,rep2
 pop1,strain2,rep1
-...
 ```
 
-### Trait Values Format
+Trait values (wide format: one row per trait, sample columns after `chr`):
 
 ```csv
-trait_id,chr,population,strain,replicate,value
-trait001,autosomes,pop1,strain1,rep1,0.523
-trait001,autosomes,pop1,strain1,rep2,0.541
-...
+trait_id,chr,1,2,3
+trait001,autosomes,0.523,0.541,0.510
 ```
 
-## Output Files
+## Output files
 
 | File | Description |
 |------|-------------|
-| `qst_results.csv` | Detection results (trait_id, chr, QST, adaptive) |
+| `qst_results.csv` | Detection results (`trait_id`, `chr`, `QST`, `adaptive`) |
 | `tpr_fpr_matrix_*.csv` | TPR/FPR matrices per chromosome |
 | `combined_model_ranking.csv` | Model performance ranking |
-| `sample_struct_comparison_*/plots/` | Power comparison across sample structures (optional) |
 
-For `qst_results.csv`, blank `QST` and `adaptive` fields do not always mean the workflow failed. In some traits, the observed-data ANOVA summary statistics can fall on a boundary case, such as observed `QST = 0`; then the downstream ABC estimation may return `NA`/`NaN` because there is not enough informative variation for a stable posterior estimate. In that case, the threshold columns can still be produced, and the blank estimate should be interpreted as "uninformative for ABC under this sample/trait pattern" rather than as a pipeline error.
+Blank `QST` / `adaptive` fields are not always a pipeline error. If observed ANOVA components are uninformative (for example both genetic variances non-positive), ABC can return NA. Threshold columns can still be written; treat the blank estimate as "uninformative under this sample/trait pattern".
 
-### Sample Structure Comparison (Optional)
+## Extra: compare several trait types
 
-When `sample_structures` is set in the evaluate config, the workflow runs the
-evaluation for each structure and produces power comparison plots showing how
-detection power varies with sample size. By default, the comparison uses the
-first summary stats combo; set `comparison_stats` to override.
-
-After HTCondor (or Snakemake) finishes, **aggregate** then **plot** any results tree
-with `n2_i{ind}_r{rep}/` subdirectories and batch `.RData` under `autosomes/` and
-`chrX/`:
+Not required by the manuscript, but useful if you run Detection on more than one collection. The scripts take any set of directories that contain `summary/qst_results_abc.csv`:
 
 ```bash
-# 1) Build tpr_fpr_matrix_*.csv from batch RData (required for HTCondor Module 2 DAGs)
+Rscript workflow/scripts/plot_comparison_across_trait_types.R \
+  --results-root results/detect_collections \
+  --output-dir results/detect_collections/comparison
+
+Rscript workflow/scripts/compare_adaptive_fst_vs_qst.R \
+  --results-root results/detect_collections \
+  --output-dir results/detect_collections/comparison \
+  --fst-autosomes data/example/qst_neutral_autosomes.txt \
+  --fst-chrx data/example/qst_neutral_chrX.txt
+```
+
+Optional `--trait-types a,b,c` and `--labels-tsv` (columns `trait_type`, `label`) override auto-discovery and plot labels.
+
+## Sample-structure comparison (optional)
+
+When `sample_structures` is set in `config_evaluate.yaml`, Snakemake evaluates each structure. After HTCondor Design runs that write `n2_i{ind}_r{rep}/` trees:
+
+```bash
 bash workflow/scripts/run_aggregate_sample_structure_perf_eval.sh \
-  htcondor/results/validation_sample_struct_QST_ratioVbetweenVtotal \
+  path/to/sample_struct_results \
   0.8 0.1,1.0,10.0 0.95
 
-# 2) Power curves and tables
 bash workflow/scripts/run_plot_sample_structure_comparison.sh \
-  htcondor/results/validation_sample_struct_QST_ratioVbetweenVtotal \
+  path/to/sample_struct_results \
   "QST,ratioVbetweenVtotal"
-```
-
-Outputs: `<results_base_dir>/*/autosomes|chrX/tpr_fpr_matrix_*.csv`, then
-`<results_base_dir>/plots/` (PDFs and TPR tables).
-
-Example fixtures (~200 KB): [data/example/postprocessing/](data/example/postprocessing/README.md).
-
-### Multi-Combo Performance Evaluation (Optional, Local)
-
-For HTCondor runs that score many summary-stat combinations per job (e.g. fast
-all-combo perf-eval), aggregate locally after jobs complete:
-
-```bash
-bash workflow/scripts/run_aggregate_perf_eval_multicombo_fast.sh \
-  path/to/perf_eval_results
-```
-
-Requires `combinations*.txt` in the results root and `autosomes/` + `chrX/`
-with `neutral_ratio_*` / `adaptive_q*_*` batch `.RData` files. Writes per-combo
-`tpr_fpr_matrix_*_combo_XXXX.csv` and `combined_model_ranking.csv`.
-
-**Publication ranking** (manuscript stat names, two-column table at V_E/V_G = 1.0):
-
-```bash
-bash workflow/scripts/run_perf_eval_publication_ranking.sh \
-  path/to/perf_eval_results
-# or after aggregation only:
-#   SKIP_COMBINED=1 bash workflow/scripts/run_perf_eval_publication_ranking.sh ...
-```
-
-Writes `combined_model_ranking_publication.csv`, `Table_model_ranking.txt`, and
-`Table_model_ranking_legend.txt`. Set `RUN_PUBLICATION_RANKING=1` on the
-multi-combo aggregate script to run this step automatically.
-
-Examples: [data/example/postprocessing/](data/example/postprocessing/README.md)
-(`perf_eval_multicombo/` schemas, `perf_eval_ranking/` publication table).
-
-## Directory Structure
-
-```
-REDQuanTA/
-├── README.md                    # This file
-├── README_details.md            # Detailed documentation
-├── environment.yml              # Conda environment
-├── Dockerfile                   # Validation container
-├── config/                      # Snakemake configuration
-│   ├── config_detect.yaml       # Module 1 config
-│   ├── config_evaluate.yaml     # Module 2 (local, reduced params)
-│   └── config_evaluate_full.yaml# Module 2 (HTCondor, full params)
-├── workflow/                    # Snakemake workflow
-│   ├── Snakefile
-│   ├── rules/
-│   └── scripts/                 # R helpers + optional local post-processing
-│       ├── run_aggregate_sample_structure_perf_eval.sh
-│       ├── run_plot_sample_structure_comparison.sh
-│       └── run_aggregate_perf_eval_multicombo_fast.sh
-├── htcondor/                    # HTCondor execution
-│   ├── scripts/
-│   └── env/
-├── data/
-│   ├── example/                 # Example input data
-│   └── reference/               # Reference figures
-└── results/                     # Output directory
 ```
 
 ## Documentation
 
-- **[README_details.md](README_details.md)**: Full parameter documentation, HTCondor setup, troubleshooting
-- **[HTCondor Documentation](https://htcondor.readthedocs.io/)**: Official HTCondor docs
+- [README_details.md](README_details.md): parameters, HTCondor setup, troubleshooting
+- [docs/MANUSCRIPT_FIGURES.md](docs/MANUSCRIPT_FIGURES.md): manuscript figures to generating scripts
+- [VALIDATION.md](VALIDATION.md): local and CHTC checks
+- [HTCondor documentation](https://htcondor.readthedocs.io/)
 
 ## Citation
 
-If you use REDQuanTA in your research, please cite:
+If you use REDQuanTEA, please cite:
 
-> Feng, S., & Pool, J. E. (in preparation). *REDQuanTA: Replication-Enhanced Detection of Quantitative Traits under Adaptation — an improved statistical framework to detect locally adaptive traits*. Laboratory of Genetics, University of Wisconsin-Madison.
+> Feng, S., & Pool, J. E. (in preparation). *REDQuanTEA: Replication-Enhanced Detection of Quantitative Traits Evolving Adaptively*. Laboratory of Genetics, University of Wisconsin-Madison.
 
-Until the paper is published, you may also cite this repository directly:
+Until the paper is published, you may also cite this repository:
 
-> Feng, S., & Pool, J. E. (2025). *REDQuanTA* [Software]. GitHub. https://github.com/sfeng666/REDQuanTA
+> Feng, S., & Pool, J. E. (2026). *REDQuanTEA* [Software]. GitHub. https://github.com/sfeng666/REDQuanTEA
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT. See [LICENSE](LICENSE).

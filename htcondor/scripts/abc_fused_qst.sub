@@ -1,0 +1,28 @@
+# HTCondor submit file for fused trait+neutral+aggregate ABC QST (one job per trait)
+
+universe = vanilla
+executable = $(dir_scripts)/run_abc_qst.sh
+arguments = $(mode) $(input) $(fst_input) $(output_file) $(num_sim) $(summary_stats)
+environment = "SANITY_CHECK=$(sanity_check) QST_THRESHOLD_PERCENTILE=0.95 $(environment)"
+
+transfer_input_files = $(dir_code)/qst_abc_sim.R, $(dir_code)/abc_fast_estimators.R, $(dir_code)/abc_boundary_helpers.R, $(dir_code)/aggregate_qst.R, $(fst_input), $(r_env_tarball)$(extra_input_comma)$(extra_input_files)
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_output_files = $(output_file)$(extra_output_files)
+
+initialdir = $(outdir)
+log = $(job).log
+output = $(job).out
+error = $(job).err
+
+request_cpus = 1
+request_memory = 2GB
+request_disk = 2GB
+
+periodic_release = (NumJobStarts < 5) && ((HoldReasonCode == 12) || (HoldReasonCode == 13) || (HoldReasonCode == 21))
+
+want_campus_pools = true
+want_ospool = true
+requirements = (Target.OpSysMajorVer >= 7)
+
+queue

@@ -1,4 +1,4 @@
-# REDQuanTA FST Input Rules
+# REDQuanTEA FST Input Rules
 #
 # Three modes for obtaining neutral FST distribution:
 #   1. direct: User provides FST file paths in config (default)
@@ -14,7 +14,7 @@ FST_OUTPUT_DIR = config.get("output_dir", "results") + "/fst_input"
 # Rule: Generate FST from VCF (mode: from_vcf)
 rule fst_from_vcf:
     input:
-        vcf=config.get("vcf_file", "")
+        vcf=config.get("vcf_file") or []
     output:
         fst_autosomes=f"{FST_OUTPUT_DIR}/qst_neutral_autosomes.txt",
         fst_chrX=f"{FST_OUTPUT_DIR}/qst_neutral_chrX.txt"
@@ -36,7 +36,7 @@ rule fst_from_vcf:
 # Rule: Generate FST from ms simulation (mode: from_simulation)
 rule fst_from_simulation:
     input:
-        ms_config=config.get("ms_config", "")
+        ms_config=config.get("ms_config") or []
     output:
         fst_autosomes=f"{FST_OUTPUT_DIR}/qst_neutral_autosomes.txt",
         fst_chrX=f"{FST_OUTPUT_DIR}/qst_neutral_chrX.txt"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate HTCondor DAG for QST Performance Evaluation (Module 2).
+Generate HTCondor DAG for QST Performance Evaluation (Design Module).
 
 This script generates jobs to evaluate the performance of ABC-based QST estimation
 by simulating traits with known adaptive QST values and calculating TPR/FPR.
@@ -34,8 +34,8 @@ INPUT_DIR = DATA_DIR / "example"
 RSCRIPT = os.environ.get("RSCRIPT", shutil.which("Rscript") or "Rscript")
 
 # Default parameters
-DEFAULT_BATCH_SIZE = 1000  # Same as Module 1
-DEFAULT_NUM_NEUTRAL = 10000  # Same as Module 1
+DEFAULT_BATCH_SIZE = 1000  # Same as Detection Module
+DEFAULT_NUM_NEUTRAL = 10000  # Same as Detection Module
 DEFAULT_NUM_REPEATS = 10000  # Repeats per adaptive QST level
 DEFAULT_NUM_SIM = 100000  # ABC simulations
 DEFAULT_THRESHOLD = 0.95
@@ -153,7 +153,7 @@ def generate_perf_eval_dag(dag_path, params, chr_type, output_dir):
     env_vars = f'SIM_NUM_POP={params["num_pop"]} SIM_NUM_IND={params["num_ind"]} SIM_NUM_REP={params["num_rep"]}'
     
     with open(dag_path, 'w') as f:
-        f.write("# HTCondor DAG for QST Performance Evaluation (Module 2)\n")
+        f.write("# HTCondor DAG for QST Performance Evaluation (Design Module)\n")
         f.write(f"# Chromosome: {chr_type}\n")
         f.write(f"# Sample Structure: {params['num_pop']} pops, {params['num_ind']} inds, {params['num_rep']} reps\n")
         f.write(f"# Adaptive QST levels: {params['adaptive_qst']}\n")
@@ -305,10 +305,10 @@ def generate_perf_eval_dag(dag_path, params, chr_type, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate HTCondor DAG for QST Performance Evaluation (Module 2)"
+        description="Generate HTCondor DAG for QST Performance Evaluation (Design Module)"
     )
     
-    # Module 2-specific parameters
+    # Design Module-specific parameters
     parser.add_argument("--adaptive-qst", type=str, default=None,
                         help=f"Comma-separated adaptive QST levels (default: {DEFAULT_ADAPTIVE_QST})")
     parser.add_argument("--ve-ratios", type=str, default=None,
@@ -318,7 +318,7 @@ def main():
     parser.add_argument("--chr", choices=['autosomes', 'chrX', 'both'], default='autosomes',
                         help="Chromosome type (default: autosomes)")
     
-    # Shared parameters from Module 1
+    # Shared parameters from Detection Module
     parser.add_argument("--num-neutral", type=int, default=DEFAULT_NUM_NEUTRAL,
                         help=f"Number of neutral FST values (default: {DEFAULT_NUM_NEUTRAL})")
     parser.add_argument("--num-sim", type=int, default=DEFAULT_NUM_SIM,
@@ -382,7 +382,7 @@ def main():
     }
     
     print("=" * 60)
-    print("QST Performance Evaluation DAG Generator (Module 2)")
+    print("QST Performance Evaluation DAG Generator (Design Module)")
     print("=" * 60)
     print(f"Adaptive QST levels: {adaptive_qst}")
     print(f"V_E/V_G ratios: {ve_ratios}")
